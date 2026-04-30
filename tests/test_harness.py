@@ -4,7 +4,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from harness_engineering.cli import main as cli_main
 from harness_engineering.runner import HarnessRunner
 from harness_engineering.store import RunStore
 from harness_engineering.tools import default_registry, load_source_documents
@@ -69,6 +71,25 @@ class HarnessTests(unittest.TestCase):
         path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
         docs = load_source_documents(str(path))
         self.assertEqual(len(docs), 2)
+
+    def test_interactive_cli_completes_when_approved(self) -> None:
+        path = self.root / "sources.json"
+        path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
+        with patch("builtins.input", return_value="y"):
+            code = cli_main([
+                "interactive",
+                "--topic",
+                "interactive harness",
+                "--source-file",
+                str(path),
+                "--runs-dir",
+                str(self.root / ".runs"),
+            ])
+        self.assertEqual(code, 0)
+        run_id = self.store.latest_run_id()
+        self.assertIsNotNone(run_id)
+        state = self.store.load(run_id)
+        self.assertEqual(state.status, "completed")
 
 
 if __name__ == "__main__":

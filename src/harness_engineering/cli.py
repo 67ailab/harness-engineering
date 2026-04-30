@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
     list_cmd = sub.add_parser("list", help="List runs")
     list_cmd.add_argument("--runs-dir", default=".runs")
 
+    interactive = sub.add_parser("interactive", help="Run an interactive approval-driven demo")
+    interactive.add_argument("--topic", required=True)
+    interactive.add_argument("--source-file", required=True)
+    interactive.add_argument("--runs-dir", default=".runs")
+
     return parser
 
 
@@ -103,6 +108,33 @@ def cmd_list(args) -> int:
             print(f"{run_id}  {state.status}  {state.topic}")
         except FileNotFoundError:
             print(f"{run_id}  <missing state>")
+    return 0
+
+
+def cmd_interactive(args) -> int:
+    store = RunStore(args.runs_dir)
+    runner = HarnessRunner(store=store)
+    source_documents = load_source_documents(args.source_file)
+    state = runner.create_run(topic=args.topic, source_documents=source_documents)
+    state = runner.run_until_pause_or_complete(state)
+
+    print(f"Interactive demo run: {state.run_id}")
+    print(f"Status: {state.status}")
+    if state.status == "waiting_approval":
+        print()
+        print("Pending action: finalize_report")
+        print("Preview of draft report:")
+        print("=" * 60)
+        print(state.artifacts.get("draft_markdown", ""))
+        print("=" * 60)
+        answer = input("Approve writing final_report.md? [y/N]: ").strip().lower()
+        if answer in {"y", "yes"}:
+            runner.approve(state.run_id)
+            state = runner.resume(state.run_id)
+            print(f"Completed. Final report: {state.artifacts.get('final_report', {}).get('path')}")
+        else:
+            print("Approval withheld. Run is safely checkpointed and can be resumed later.")
+            print(f"Resume later with: PYTHONPATH=src python3 -m harness_engineering.cli resume {state.run_id}")
     return 0
 
 

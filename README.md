@@ -86,13 +86,25 @@ Expected behavior:
 * it saves checkpointed state locally
 * it tells you how to approve and resume
 
-### 3. Inspect the latest run
+### 3. Try the interactive demo
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli interactive \
+  --topic "Agentic harness engineering" \
+  --source-file sample_data/sources.json
+```
+
+This mode shows the draft report, prompts for approval, and either:
+* writes the final report immediately if you approve, or
+* leaves the run checkpointed for later resume if you decline
+
+### 4. Inspect the latest run
 
 ```bash
 PYTHONPATH=src python3 -m harness_engineering.cli inspect --latest
 ```
 
-### 4. Approve and resume
+### 5. Approve and resume
 
 Replace `<run_id>` with the value printed by the `start` command.
 
@@ -166,6 +178,7 @@ This repo gives you code that demonstrates real harness concepts cleanly:
 * traces are stored
 * retries are visible
 * risky actions are gated
+* the interactive demo makes the approval boundary tangible for readers and screenshots
 
 That makes it a good companion for a practical blog series on harness engineering.
 
