@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 
+from .provider import doctor_check
 from .runner import HarnessRunner
 from .store import RunStore
 from .tools import load_source_documents
@@ -39,6 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
     interactive.add_argument("--topic", required=True)
     interactive.add_argument("--source-file", required=True)
     interactive.add_argument("--runs-dir", default=".runs")
+
+    sub.add_parser("doctor", help="Check provider/model connectivity and configuration")
 
     return parser
 
@@ -118,7 +121,10 @@ def cmd_interactive(args) -> int:
     state = runner.create_run(topic=args.topic, source_documents=source_documents)
     state = runner.run_until_pause_or_complete(state)
 
+    provider_used = state.step_results[-1].output.get("provider") if state.step_results else None
     print(f"Interactive demo run: {state.run_id}")
+    if provider_used:
+        print(f"Draft provider: {provider_used}")
     print(f"Status: {state.status}")
     if state.status == "waiting_approval":
         print()
@@ -136,6 +142,12 @@ def cmd_interactive(args) -> int:
             print("Approval withheld. Run is safely checkpointed and can be resumed later.")
             print(f"Resume later with: PYTHONPATH=src python3 -m harness_engineering.cli resume {state.run_id}")
     return 0
+
+
+def cmd_doctor(args) -> int:
+    result = doctor_check()
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0 if result.get("status") in {"ok", "mock"} else 1
 
 
 def main(argv: list[str] | None = None) -> int:

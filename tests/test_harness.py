@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from harness_engineering.cli import main as cli_main
+from harness_engineering.provider import build_report_markdown
 from harness_engineering.runner import HarnessRunner
 from harness_engineering.store import RunStore
 from harness_engineering.tools import default_registry, load_source_documents
@@ -90,6 +91,15 @@ class HarnessTests(unittest.TestCase):
         self.assertIsNotNone(run_id)
         state = self.store.load(run_id)
         self.assertEqual(state.status, "completed")
+
+    def test_build_report_markdown_without_provider(self) -> None:
+        markdown = build_report_markdown("demo", ["fact one"])
+        self.assertIn("# Report: demo", markdown)
+        self.assertIn("fact one", markdown)
+
+    def test_doctor_returns_mock_status_by_default(self) -> None:
+        code = cli_main(["doctor"])
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":

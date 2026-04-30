@@ -153,19 +153,44 @@ make secrets
 ```bash
 make install
 make demo
+make demo-interactive
 make test
 make secrets
 ```
 
 ## Optional provider integration
 
-This starter repo intentionally works without external APIs.
+This starter repo intentionally works without external APIs, but it can also use an OpenAI-compatible endpoint for draft generation.
 
-If you later add model providers, keep them optional and env-based only:
+Supported env vars:
 
+* `MODEL_PROVIDER` (`mock` or `openai_compatible`)
+* `MODEL_NAME`
+* `OPENAI_BASE_URL`
 * `OPENAI_API_KEY`
+* `HARNESS_MODEL_PROVIDER`
+* `HARNESS_MODEL_NAME`
+* `HARNESS_OPENAI_BASE_URL`
+* `HARNESS_OPENAI_API_KEY`
 * `ANTHROPIC_API_KEY`
 * `GOOGLE_API_KEY`
+
+Example local `.env` (do not commit it):
+
+```dotenv
+HARNESS_MODEL_PROVIDER=openai_compatible
+HARNESS_MODEL_NAME=gemma4
+HARNESS_OPENAI_BASE_URL=http://127.0.0.1:8080/v1
+HARNESS_OPENAI_API_KEY=your-local-key
+```
+
+The `HARNESS_*` names are useful when your shell already exports unrelated provider keys.
+
+Check provider/model connectivity:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli doctor
+```
 
 Never hardcode keys. Never commit populated `.env` files.
 

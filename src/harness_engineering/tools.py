@@ -6,6 +6,8 @@ from typing import Any, Callable
 import json
 import random
 
+from .provider import build_report_markdown, create_client_from_env
+
 
 class ToolError(RuntimeError):
     pass
@@ -59,13 +61,10 @@ def extract_facts(matches: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def draft_report(topic: str, facts: list[str]) -> dict[str, Any]:
-    lines = [f"# Report: {topic}", "", "## Key Findings", ""]
-    if not facts:
-        lines.append("- No facts were extracted from the provided sources.")
-    else:
-        lines.extend([f"- {fact}" for fact in facts])
-    lines.extend(["", "## Harness Notes", "", "- This report was generated via a checkpointed, approval-gated local harness demo."])
-    return {"markdown": "\n".join(lines)}
+    client = create_client_from_env()
+    markdown = build_report_markdown(topic=topic, facts=facts, client=client)
+    provider = "openai_compatible" if client is not None else "mock"
+    return {"markdown": markdown, "provider": provider}
 
 
 def finalize_report(markdown: str, output_path: str) -> dict[str, Any]:
