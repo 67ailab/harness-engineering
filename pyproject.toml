@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harness-engineering"
+version = "0.1.0"
+description = "Practical demos of agentic harness engineering: approvals, tracing, checkpoints, retries, and safe execution."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+  { name = "67 AI Lab" }
+]
+license = { text = "MIT" }
+keywords = ["agents", "llm", "harness", "workflow", "approvals", "tracing"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+
+[project.scripts]
+harness-engineering = "harness_engineering.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

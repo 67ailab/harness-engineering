@@ -1,0 +1,14 @@
+[
+  {
+    "title": "Harnesses are where reliability lives",
+    "content": "Prompt engineering can improve quality, but real production reliability usually comes from harness engineering. Teams need retries, traces, typed tool contracts, approvals, and resumable state."
+  },
+  {
+    "title": "MCP standardizes tool connectivity",
+    "content": "Model Context Protocol helps standardize how models discover and call tools. It does not solve durable execution, policy enforcement, approval workflows, or long-running state management by itself."
+  },
+  {
+    "title": "Durability changes the system shape",
+    "content": "Long-running agents need checkpoints, pause and resume support, and clear audit trails. Human approval should be represented as an explicit workflow state, not as an informal chat instruction."
+  }
+]

@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import sys
+
+from .runner import HarnessRunner
+from .store import RunStore
+from .tools import load_source_documents
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="harness-engineering", description="Approval-gated harness engineering demo")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    start = sub.add_parser("start", help="Start a new run")
+    start.add_argument("--topic", required=True)
+    start.add_argument("--source-file", required=True)
+    start.add_argument("--runs-dir", default=".runs")
+
+    inspect = sub.add_parser("inspect", help="Inspect a run")
+    inspect.add_argument("run_id", nargs="?")
+    inspect.add_argument("--latest", action="store_true")
+    inspect.add_argument("--runs-dir", default=".runs")
+
+    approve = sub.add_parser("approve", help="Approve the pending action for a run")
+    approve.add_argument("run_id")
+    approve.add_argument("--runs-dir", default=".runs")
+
+    resume = sub.add_parser("resume", help="Resume a run")
+    resume.add_argument("run_id")
+    resume.add_argument("--runs-dir", default=".runs")
+
+    list_cmd = sub.add_parser("list", help="List runs")
+    list_cmd.add_argument("--runs-dir", default=".runs")
+
+    return parser
+
+
+def _resolve_run_id(store: RunStore, run_id: str | None, latest: bool) -> str:
+    if latest:
+        found = store.latest_run_id()
+        if not found:
+            raise SystemExit("No runs found")
+        return found
+    if run_id:
+        return run_id
+    raise SystemExit("Provide run_id or use --latest")
+
+
+def cmd_start(args) -> int:
+    store = RunStore(args.runs_dir)
+    runner = HarnessRunner(store=store)
+    source_documents = load_source_documents(args.source_file)
+    state = runner.create_run(topic=args.topic, source_documents=source_documents)
+    state = runner.run_until_pause_or_complete(state)
+    print(f"Run created: {state.run_id}")
+    print(f"Status: {state.status}")
+    if state.status == "waiting_approval":
+        print("Approval required before finalize_report can write the final markdown file.")
+        print(f"Next: python3 -m harness_engineering.cli approve {state.run_id}")
+        print(f"Then: python3 -m harness_engineering.cli resume {state.run_id}")
+    return 0
+
+
+def cmd_inspect(args) -> int:
+    store = RunStore(args.runs_dir)
+    run_id = _resolve_run_id(store, args.run_id, args.latest)
+    state = store.load(run_id)
+    print(json.dumps(state.to_dict(), indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_approve(args) -> int:
+    store = RunStore(args.runs_dir)
+    runner = HarnessRunner(store=store)
+    state = runner.approve(args.run_id)
+    print(f"Approved run {state.run_id}. Current status: {state.status}")
+    return 0
+
+
+def cmd_resume(args) -> int:
+    store = RunStore(args.runs_dir)
+    runner = HarnessRunner(store=store)
+    state = runner.resume(args.run_id)
+    print(f"Run {state.run_id} status: {state.status}")
+    if state.status == "completed":
+        final_info = state.artifacts.get("final_report", {})
+        print(f"Final report: {final_info.get('path')}")
+    return 0
+
+
+def cmd_list(args) -> int:
+    store = RunStore(args.runs_dir)
+    runs = store.list_runs()
+    if not runs:
+        print("No runs found")
+        return 0
+    for run_id in runs:
+        try:
+            state = store.load(run_id)
+            print(f"{run_id}  {state.status}  {state.topic}")
+        except FileNotFoundError:
+            print(f"{run_id}  <missing state>")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    command = args.command.replace("-", "_")
+    handler = globals().get(f"cmd_{command}")
+    if not handler:
+        parser.error(f"Unknown command: {args.command}")
+    return handler(args)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())
