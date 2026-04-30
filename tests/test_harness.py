@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from harness_engineering.cli import main as cli_main
 from harness_engineering.provider import build_report_markdown
+from harness_engineering.reviewer import build_plan, review_markdown
 from harness_engineering.runner import HarnessRunner
 from harness_engineering.store import RunStore
 from harness_engineering.tools import default_registry, load_source_documents
@@ -34,8 +35,14 @@ class HarnessTests(unittest.TestCase):
         self.runner = HarnessRunner(store=self.store, registry=default_registry())
 
     def test_run_pauses_for_approval_then_completes(self) -> None:
-        state = self.runner.create_run("approval gated harness", SAMPLE_DOCS)
-        state = self.runner.run_until_pause_or_complete(state)
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: approval gated harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("approval gated harness", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
         self.assertEqual(state.status, "waiting_approval")
         self.assertTrue(state.requires_approval)
         self.assertEqual(state.current_step, "finalize_report")
@@ -76,7 +83,12 @@ class HarnessTests(unittest.TestCase):
     def test_interactive_cli_completes_when_approved(self) -> None:
         path = self.root / "sources.json"
         path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
-        with patch("builtins.input", return_value="y"):
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: interactive harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None), patch("builtins.input", return_value="y"):
             code = cli_main([
                 "interactive",
                 "--topic",
@@ -98,8 +110,15 @@ class HarnessTests(unittest.TestCase):
         self.assertIn("fact one", markdown)
 
     def test_doctor_returns_mock_status_by_default(self) -> None:
-        code = cli_main(["doctor"])
+        with patch("harness_engineering.cli.doctor_check", return_value={"status": "mock", "message": "Using mock provider"}):
+            code = cli_main(["doctor"])
         self.assertEqual(code, 0)
+
+    def test_mock_planner_and_reviewer(self) -> None:
+        plan = build_plan("demo topic", SAMPLE_DOCS)
+        self.assertEqual(len(plan), 4)
+        review = review_markdown("demo topic", "# Report: demo\n\n## Key Findings\n\n- x\n\n## Harness Notes\n\n- y")
+        self.assertTrue(review["passed"])
 
 
 if __name__ == "__main__":

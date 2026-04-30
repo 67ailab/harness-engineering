@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import RunState, StepResult
+from .reviewer import create_plan_from_env, review_from_env
 from .store import RunStore
 from .tools import ToolError, ToolRegistry, default_registry
 from .tracing import add_trace
@@ -45,13 +46,15 @@ class HarnessRunner:
     def create_run(self, topic: str, source_documents: list[dict[str, Any]]) -> RunState:
         state = RunState.new(topic=topic, source_documents=source_documents)
         state.status = "running"
-        state.plan = [
+        plan, planner = create_plan_from_env(topic=topic, source_documents=source_documents)
+        state.plan = plan or [
             "search_mock",
             "extract_facts",
             "draft_report",
             "finalize_report",
         ]
-        add_trace(state, "run_created", topic=topic, plan=state.plan)
+        state.artifacts["planner"] = planner
+        add_trace(state, "run_created", topic=topic, plan=state.plan, planner=planner)
         self.store.save(state)
         return state
 
@@ -87,6 +90,15 @@ class HarnessRunner:
                     state.status = "failed"
                     break
                 state.artifacts["draft_markdown"] = result.output["markdown"]
+                review = review_from_env(topic=state.topic, markdown=state.artifacts["draft_markdown"])
+                state.artifacts["review"] = review
+                add_trace(state, "draft_reviewed", review=review)
+                if not review.get("passed", False):
+                    state.status = "failed"
+                    state.pending_action = None
+                    state.requires_approval = False
+                    self.store.save(state)
+                    break
                 state.current_step = "finalize_report"
                 state.requires_approval = True
                 state.pending_action = "finalize_report"

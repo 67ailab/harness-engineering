@@ -27,12 +27,14 @@ This repo demonstrates the opposite approach: engineer the harness around the mo
 
 ## Demo architecture
 
-The included demo is a small *planner/executor harness*:
+The included demo is a small *planner/executor/reviewer harness*:
 
-1. `search_mock` finds relevant mock source documents
-2. `extract_facts` turns them into concise facts
-3. `draft_report` writes a markdown draft
-4. `finalize_report` is treated as risky and requires explicit human approval before writing to disk
+1. a planner creates or confirms the workflow steps
+2. `search_mock` finds relevant source documents
+3. `extract_facts` turns them into concise facts
+4. `draft_report` writes a markdown draft
+5. a reviewer checks the draft structure/quality
+6. `finalize_report` is treated as risky and requires explicit human approval before writing to disk
 
 Run state is persisted under `.runs/<run_id>/state.json`.
 
@@ -204,6 +206,7 @@ This repo gives you code that demonstrates real harness concepts cleanly:
 * retries are visible
 * risky actions are gated
 * the interactive demo makes the approval boundary tangible for readers and screenshots
+* optional local-model planning and review make the harness feel more agentic without requiring cloud APIs
 
 That makes it a good companion for a practical blog series on harness engineering.
 
