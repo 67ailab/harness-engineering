@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .mcp import call_tool
 from .models import RunState, StepResult
 from .reviewer import create_plan_from_env, review_from_env
 from .store import RunStore
@@ -33,8 +34,8 @@ class HarnessRunner:
 
     def _execute(self, state: RunState, tool_name: str, **kwargs: Any) -> StepResult:
         tool = self.registry.get(tool_name)
-        add_trace(state, "tool_start", tool=tool_name, args=kwargs)
-        result = self.retry.call(tool_name, tool.handler, **kwargs)
+        add_trace(state, "tool_start", tool=tool_name, args=kwargs, risky=tool.risky)
+        result = self.retry.call(tool_name, call_tool, self.registry, tool_name, kwargs)
         state.step_results.append(result)
         if result.ok:
             add_trace(state, "tool_ok", tool=tool_name, output=result.output, attempts=result.attempts)

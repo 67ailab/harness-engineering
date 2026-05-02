@@ -5,10 +5,11 @@ import json
 from pathlib import Path
 import sys
 
+from .mcp import call_tool_mcp, registry_to_mcp_tools
 from .provider import doctor_check
 from .runner import HarnessRunner
 from .store import RunStore
-from .tools import load_source_documents
+from .tools import default_registry, load_source_documents
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,6 +41,13 @@ def build_parser() -> argparse.ArgumentParser:
     interactive.add_argument("--topic", required=True)
     interactive.add_argument("--source-file", required=True)
     interactive.add_argument("--runs-dir", default=".runs")
+
+    mcp_tools = sub.add_parser("mcp-tools", help="Print MCP-style tool descriptors for the default registry")
+    mcp_tools.add_argument("--pretty", action="store_true")
+
+    mcp_call = sub.add_parser("mcp-call", help="Call a registered tool through the MCP-style adapter")
+    mcp_call.add_argument("tool_name")
+    mcp_call.add_argument("arguments_json")
 
     sub.add_parser("doctor", help="Check provider/model connectivity and configuration")
 
@@ -142,6 +150,21 @@ def cmd_interactive(args) -> int:
             print("Approval withheld. Run is safely checkpointed and can be resumed later.")
             print(f"Resume later with: PYTHONPATH=src python3 -m harness_engineering.cli resume {state.run_id}")
     return 0
+
+
+def cmd_mcp_tools(args) -> int:
+    tools = registry_to_mcp_tools(default_registry())
+    indent = 2 if args.pretty else None
+    print(json.dumps({"tools": tools}, indent=indent, ensure_ascii=False))
+    return 0
+
+
+def cmd_mcp_call(args) -> int:
+    registry = default_registry()
+    arguments = json.loads(args.arguments_json)
+    result = call_tool_mcp(registry=registry, tool_name=args.tool_name, arguments=arguments)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0 if not result.get("isError") else 1
 
 
 def cmd_doctor(args) -> int:

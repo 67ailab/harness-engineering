@@ -6,6 +6,7 @@ This repo starts with a real demo you can run locally without any API key:
 
 * an approval-gated research agent harness
 * typed tool registry
+* MCP-style tool descriptors and adapter calls
 * checkpointed run state
 * resumable execution
 * human approval gates for risky actions
@@ -43,6 +44,7 @@ Run state is persisted under `.runs/<run_id>/state.json`.
 ```text
 src/harness_engineering/
   cli.py
+  mcp.py
   models.py
   runner.py
   store.py
@@ -160,6 +162,30 @@ make test
 make secrets
 ```
 
+## MCP-style tool adapter
+
+The repo now includes a small MCP-ready adapter layer in `src/harness_engineering/mcp.py`.
+
+It does three things:
+
+* converts internal `Tool` definitions into MCP-style tool descriptors
+* validates tool-call arguments against the registry's declared schema
+* returns MCP-style call results with both `content` and `structuredContent`
+
+List the default tool descriptors:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli mcp-tools --pretty
+```
+
+Call a tool through the adapter:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli mcp-call extract_facts '{"matches": []}'
+```
+
+This does **not** make the repo a full MCP server. It creates a provider-neutral interface boundary so the harness can expose its tools in a protocol-friendly shape while still keeping orchestration, retries, approvals, and state in the harness.
+
 ## Optional provider integration
 
 This starter repo intentionally works without external APIs, but it can also use an OpenAI-compatible endpoint for draft generation.
@@ -212,6 +238,7 @@ That makes it a good companion for a practical blog series on harness engineerin
 
 ## Next suggested expansions
 
+* expose the adapter over a real JSON-RPC MCP server transport
 * swap `search_mock` for a real MCP-backed search tool
 * add a web research provider behind an interface
 * add policy rules for file/network/tool permissions

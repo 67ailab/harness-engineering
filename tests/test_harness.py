@@ -7,11 +7,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from harness_engineering.cli import main as cli_main
+from harness_engineering.mcp import call_tool, call_tool_mcp, registry_to_mcp_tools, validate_tool_arguments
 from harness_engineering.provider import build_report_markdown
 from harness_engineering.reviewer import build_plan, review_markdown
 from harness_engineering.runner import HarnessRunner
 from harness_engineering.store import RunStore
-from harness_engineering.tools import default_registry, load_source_documents
+from harness_engineering.tools import ToolError, default_registry, load_source_documents
 
 
 SAMPLE_DOCS = [
@@ -119,6 +120,31 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(len(plan), 4)
         review = review_markdown("demo topic", "# Report: demo\n\n## Key Findings\n\n- x\n\n## Harness Notes\n\n- y")
         self.assertTrue(review["passed"])
+
+    def test_registry_exports_mcp_style_descriptors(self) -> None:
+        tools = registry_to_mcp_tools(default_registry())
+        search_tool = next(item for item in tools if item["name"] == "search_mock")
+        self.assertEqual(search_tool["inputSchema"]["type"], "object")
+        self.assertFalse(search_tool["meta"]["risky"])
+
+    def test_call_tool_validates_arguments(self) -> None:
+        registry = default_registry()
+        result = call_tool(registry, "extract_facts", {"matches": []})
+        self.assertEqual(result["facts"], [])
+        with self.assertRaises(ToolError):
+            validate_tool_arguments(registry.get("extract_facts"), {"matches": [], "extra": True})
+
+    def test_call_tool_mcp_returns_structured_error(self) -> None:
+        registry = default_registry()
+        result = call_tool_mcp(registry, "extract_facts", {"matches": "wrong"})
+        self.assertTrue(result["isError"])
+        self.assertIn("Invalid arguments", result["structuredContent"]["error"])
+
+    def test_cli_mcp_tools_and_call(self) -> None:
+        code = cli_main(["mcp-tools"])
+        self.assertEqual(code, 0)
+        code = cli_main(["mcp-call", "extract_facts", '{"matches": []}'])
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":
