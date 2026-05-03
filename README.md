@@ -162,6 +162,29 @@ make test
 make secrets
 ```
 
+## Workflow graph export
+
+The repo now includes a small orchestration-inspection helper in `src/harness_engineering/workflow.py`.
+
+It exports the current harness workflow as either:
+
+* structured JSON with nodes, transitions, approval gates, risky steps, and terminal states
+* a Mermaid flowchart string for docs or diagrams
+
+Inspect the workflow as JSON:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli workflow --pretty
+```
+
+Render the same workflow as Mermaid:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli workflow --format mermaid
+```
+
+This is intentionally a graph/export view of the **current** runner, not a full graph runtime. The live orchestration still happens in `src/harness_engineering/runner.py`.
+
 ## MCP-style tool adapter
 
 The repo now includes a small MCP-ready adapter layer in `src/harness_engineering/mcp.py`.

@@ -13,6 +13,7 @@ from harness_engineering.reviewer import build_plan, review_markdown
 from harness_engineering.runner import HarnessRunner
 from harness_engineering.store import RunStore
 from harness_engineering.tools import ToolError, default_registry, load_source_documents
+from harness_engineering.workflow import build_workflow_definition, workflow_to_mermaid
 
 
 SAMPLE_DOCS = [
@@ -144,6 +145,28 @@ class HarnessTests(unittest.TestCase):
         code = cli_main(["mcp-tools"])
         self.assertEqual(code, 0)
         code = cli_main(["mcp-call", "extract_facts", '{"matches": []}'])
+        self.assertEqual(code, 0)
+
+    def test_workflow_definition_marks_approval_and_terminal_states(self) -> None:
+        workflow = build_workflow_definition(default_registry())
+        self.assertEqual(workflow["entry_state"], "init")
+        waiting = next(node for node in workflow["nodes"] if node["id"] == "waiting_approval")
+        finalize = next(node for node in workflow["nodes"] if node["id"] == "finalize_report")
+        self.assertTrue(waiting["approval_required"])
+        self.assertTrue(finalize["risky"])
+        self.assertIn("failed", workflow["terminal_states"])
+
+    def test_workflow_mermaid_contains_approval_gate(self) -> None:
+        workflow = build_workflow_definition(default_registry())
+        mermaid = workflow_to_mermaid(workflow)
+        self.assertIn("flowchart TD", mermaid)
+        self.assertIn("waiting_approval{Await human approval}", mermaid)
+        self.assertIn("waiting_approval -->|approval_granted / approve() marks the pending action as approved| finalize_report", mermaid)
+
+    def test_cli_workflow_json_and_mermaid(self) -> None:
+        code = cli_main(["workflow"])
+        self.assertEqual(code, 0)
+        code = cli_main(["workflow", "--format", "mermaid"])
         self.assertEqual(code, 0)
 
 

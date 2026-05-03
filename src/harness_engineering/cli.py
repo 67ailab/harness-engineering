@@ -10,6 +10,7 @@ from .provider import doctor_check
 from .runner import HarnessRunner
 from .store import RunStore
 from .tools import default_registry, load_source_documents
+from .workflow import build_workflow_definition, workflow_to_mermaid
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,6 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_call = sub.add_parser("mcp-call", help="Call a registered tool through the MCP-style adapter")
     mcp_call.add_argument("tool_name")
     mcp_call.add_argument("arguments_json")
+
+    workflow = sub.add_parser("workflow", help="Inspect the harness workflow graph")
+    workflow.add_argument("--format", choices=["json", "mermaid"], default="json")
+    workflow.add_argument("--pretty", action="store_true")
 
     sub.add_parser("doctor", help="Check provider/model connectivity and configuration")
 
@@ -165,6 +170,16 @@ def cmd_mcp_call(args) -> int:
     result = call_tool_mcp(registry=registry, tool_name=args.tool_name, arguments=arguments)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0 if not result.get("isError") else 1
+
+
+def cmd_workflow(args) -> int:
+    workflow = build_workflow_definition(default_registry())
+    if args.format == "mermaid":
+        print(workflow_to_mermaid(workflow))
+        return 0
+    indent = 2 if args.pretty else None
+    print(json.dumps(workflow, indent=indent, ensure_ascii=False))
+    return 0
 
 
 def cmd_doctor(args) -> int:
