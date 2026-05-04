@@ -108,7 +108,40 @@ This mode shows the draft report, prompts for approval, and either:
 PYTHONPATH=src python3 -m harness_engineering.cli inspect --latest
 ```
 
-### 5. Approve and resume
+### 5. Print a run summary and replay-friendly history
+
+The repo now writes a machine-readable summary for every saved run to:
+
+```text
+.runs/<run_id>/summary.json
+```
+
+You can also inspect that summary from the CLI:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli summary --latest
+```
+
+And inspect trace history for replay/debugging:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli history --latest
+PYTHONPATH=src python3 -m harness_engineering.cli history --latest --event approval_required
+PYTHONPATH=src python3 -m harness_engineering.cli history --latest --tail 5
+```
+
+The summary includes:
+
+* current step and status
+* whether approval is still required
+* total attempts across steps
+* counts of pause/resume/approval events
+* final artifact paths
+* the next commands to run for approval or resume
+
+This is still a lightweight local harness, not a full durable workflow engine, but the summary/history surface makes pause-and-resume behavior easier to inspect and explain.
+
+### 6. Approve and resume
 
 Replace `<run_id>` with the value printed by the `start` command.
 
@@ -252,6 +285,8 @@ This repo gives you code that demonstrates real harness concepts cleanly:
 * approvals are explicit workflow state
 * resumes are deterministic
 * traces are stored
+* per-run summaries are persisted next to state and trace files
+* replay/debug history is inspectable from the CLI
 * retries are visible
 * risky actions are gated
 * the interactive demo makes the approval boundary tangible for readers and screenshots

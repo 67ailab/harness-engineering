@@ -169,6 +169,59 @@ class HarnessTests(unittest.TestCase):
         code = cli_main(["workflow", "--format", "mermaid"])
         self.assertEqual(code, 0)
 
+    def test_store_builds_summary_for_waiting_run(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: summary harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("summary harness", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
+        summary = self.store.build_summary(state)
+        self.assertEqual(summary["status"], "waiting_approval")
+        self.assertTrue(summary["requires_approval"])
+        self.assertEqual(summary["pending_action"], "finalize_report")
+        self.assertEqual(summary["paths"]["summary"], str(self.store.summary_path(state.run_id)))
+        self.assertEqual(len(summary["next_commands"]), 2)
+
+    def test_history_filters_trace_events(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: history harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("history harness", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
+        history = self.store.history(state.run_id, event="approval_required")
+        self.assertEqual(len(history["trace"]), 1)
+        self.assertEqual(history["trace"][0]["event"], "approval_required")
+
+    def test_cli_summary_and_history(self) -> None:
+        path = self.root / "sources.json"
+        path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: cli summary harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            code = cli_main([
+                "start",
+                "--topic",
+                "cli summary harness",
+                "--source-file",
+                str(path),
+                "--runs-dir",
+                str(self.root / ".runs"),
+            ])
+        self.assertEqual(code, 0)
+        code = cli_main(["summary", "--latest", "--runs-dir", str(self.root / ".runs")])
+        self.assertEqual(code, 0)
+        code = cli_main(["history", "--latest", "--runs-dir", str(self.root / ".runs"), "--tail", "3"])
+        self.assertEqual(code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

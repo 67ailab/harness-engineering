@@ -27,6 +27,18 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--latest", action="store_true")
     inspect.add_argument("--runs-dir", default=".runs")
 
+    summary = sub.add_parser("summary", help="Print a run summary with resume metadata")
+    summary.add_argument("run_id", nargs="?")
+    summary.add_argument("--latest", action="store_true")
+    summary.add_argument("--runs-dir", default=".runs")
+
+    history = sub.add_parser("history", help="Print trace history for a run")
+    history.add_argument("run_id", nargs="?")
+    history.add_argument("--latest", action="store_true")
+    history.add_argument("--runs-dir", default=".runs")
+    history.add_argument("--event", help="Filter history to a specific event name")
+    history.add_argument("--tail", type=int, help="Show only the last N trace events")
+
     approve = sub.add_parser("approve", help="Approve the pending action for a run")
     approve.add_argument("run_id")
     approve.add_argument("--runs-dir", default=".runs")
@@ -90,6 +102,21 @@ def cmd_inspect(args) -> int:
     run_id = _resolve_run_id(store, args.run_id, args.latest)
     state = store.load(run_id)
     print(json.dumps(state.to_dict(), indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_summary(args) -> int:
+    store = RunStore(args.runs_dir)
+    run_id = _resolve_run_id(store, args.run_id, args.latest)
+    state = store.load(run_id)
+    print(json.dumps(store.build_summary(state), indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_history(args) -> int:
+    store = RunStore(args.runs_dir)
+    run_id = _resolve_run_id(store, args.run_id, args.latest)
+    print(json.dumps(store.history(run_id, event=args.event, tail=args.tail), indent=2, ensure_ascii=False))
     return 0
 
 
