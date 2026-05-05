@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from .mcp import call_tool_mcp, registry_to_mcp_tools
+from .memory import build_memory_snapshot
 from .provider import doctor_check
 from .runner import HarnessRunner
 from .store import RunStore
@@ -38,6 +39,13 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument("--runs-dir", default=".runs")
     history.add_argument("--event", help="Filter history to a specific event name")
     history.add_argument("--tail", type=int, help="Show only the last N trace events")
+
+    memory = sub.add_parser("memory", help="Inspect working, session, and retrieval memory layers for a run")
+    memory.add_argument("run_id", nargs="?")
+    memory.add_argument("--latest", action="store_true")
+    memory.add_argument("--runs-dir", default=".runs")
+    memory.add_argument("--query", help="Optional retrieval query; defaults to the run topic")
+    memory.add_argument("--top-k", type=int, default=5, help="Maximum retrieval results to include")
 
     approve = sub.add_parser("approve", help="Approve the pending action for a run")
     approve.add_argument("run_id")
@@ -117,6 +125,14 @@ def cmd_history(args) -> int:
     store = RunStore(args.runs_dir)
     run_id = _resolve_run_id(store, args.run_id, args.latest)
     print(json.dumps(store.history(run_id, event=args.event, tail=args.tail), indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_memory(args) -> int:
+    store = RunStore(args.runs_dir)
+    run_id = _resolve_run_id(store, args.run_id, args.latest)
+    state = store.load(run_id)
+    print(json.dumps(build_memory_snapshot(state, query=args.query, top_k=args.top_k), indent=2, ensure_ascii=False))
     return 0
 
 

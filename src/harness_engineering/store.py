@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .memory import build_memory_snapshot
 from .models import RunState, now_iso
 
 
@@ -27,6 +28,9 @@ class RunStore:
 
     def summary_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "summary.json"
+
+    def memory_path(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / "memory.json"
 
     def _duration_seconds(self, started_at: str, finished_at: str) -> int | None:
         try:
@@ -92,6 +96,7 @@ class RunStore:
                 "state": str(self.state_path(state.run_id)),
                 "trace": str(self.trace_path(state.run_id)),
                 "summary": str(self.summary_path(state.run_id)),
+                "memory": str(self.memory_path(state.run_id)),
             },
             "can_resume": state.status in {"created", "running", "waiting_approval"},
             "next_commands": next_commands,
@@ -126,6 +131,8 @@ class RunStore:
             json.dump([event.__dict__ for event in state.trace], f, ensure_ascii=False, indent=2)
         with self.summary_path(state.run_id).open("w", encoding="utf-8") as f:
             json.dump(self.build_summary(state), f, ensure_ascii=False, indent=2)
+        with self.memory_path(state.run_id).open("w", encoding="utf-8") as f:
+            json.dump(build_memory_snapshot(state), f, ensure_ascii=False, indent=2)
 
     def load(self, run_id: str) -> RunState:
         path = self.state_path(run_id)

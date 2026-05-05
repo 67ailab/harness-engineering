@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from harness_engineering.cli import main as cli_main
 from harness_engineering.mcp import call_tool, call_tool_mcp, registry_to_mcp_tools, validate_tool_arguments
+from harness_engineering.memory import build_memory_snapshot, retrieve_memory
 from harness_engineering.provider import build_report_markdown
 from harness_engineering.reviewer import build_plan, review_markdown
 from harness_engineering.runner import HarnessRunner
@@ -220,6 +221,82 @@ class HarnessTests(unittest.TestCase):
         code = cli_main(["summary", "--latest", "--runs-dir", str(self.root / ".runs")])
         self.assertEqual(code, 0)
         code = cli_main(["history", "--latest", "--runs-dir", str(self.root / ".runs"), "--tail", "3"])
+        self.assertEqual(code, 0)
+
+    def test_memory_snapshot_separates_layers(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: memory architecture",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("memory architecture", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
+        snapshot = build_memory_snapshot(state, query="approval", top_k=2)
+        self.assertIn("working_context", snapshot["layers"])
+        self.assertIn("session_state", snapshot["layers"])
+        self.assertIn("retrieval_memory", snapshot["layers"])
+        self.assertEqual(snapshot["layers"]["working_context"]["current_step"], "finalize_report")
+        self.assertEqual(snapshot["layers"]["session_state"]["status"], "waiting_approval")
+        self.assertLessEqual(len(snapshot["layers"]["retrieval_memory"]["results"]), 2)
+
+    def test_retrieval_memory_prefers_matching_entries(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: approval gates",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("approval gates", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
+        retrieval = retrieve_memory(state, query="approval", top_k=3)
+        self.assertGreaterEqual(len(retrieval["results"]), 1)
+        self.assertTrue(any("approval" in item["content"].lower() for item in retrieval["results"]))
+
+    def test_store_writes_memory_snapshot_file(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: memory file",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("memory file", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
+        memory_path = self.store.memory_path(state.run_id)
+        self.assertTrue(memory_path.exists())
+        saved = json.loads(memory_path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["run_id"], state.run_id)
+        self.assertIn("retrieval_memory", saved["layers"])
+
+    def test_cli_memory_command(self) -> None:
+        path = self.root / "sources.json"
+        path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: cli memory harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            code = cli_main([
+                "start",
+                "--topic",
+                "cli memory harness",
+                "--source-file",
+                str(path),
+                "--runs-dir",
+                str(self.root / ".runs"),
+            ])
+        self.assertEqual(code, 0)
+        code = cli_main([
+            "memory",
+            "--latest",
+            "--runs-dir",
+            str(self.root / ".runs"),
+            "--query",
+            "approval",
+            "--top-k",
+            "2",
+        ])
         self.assertEqual(code, 0)
 
 

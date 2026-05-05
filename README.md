@@ -11,6 +11,7 @@ This repo starts with a real demo you can run locally without any API key:
 * resumable execution
 * human approval gates for risky actions
 * per-step tracing
+* explicit memory-layer separation for working context, session state, and retrieval memory
 * retry handling for flaky tools
 * secret-scan script to help avoid leaking keys into a public repo
 
@@ -45,6 +46,7 @@ Run state is persisted under `.runs/<run_id>/state.json`.
 src/harness_engineering/
   cli.py
   mcp.py
+  memory.py
   models.py
   runner.py
   store.py
@@ -141,7 +143,30 @@ The summary includes:
 
 This is still a lightweight local harness, not a full durable workflow engine, but the summary/history surface makes pause-and-resume behavior easier to inspect and explain.
 
-### 6. Approve and resume
+### 6. Inspect the memory layers
+
+The repo now exports a small memory architecture view in `src/harness_engineering/memory.py`.
+For any saved run, it separates:
+
+* `working_context`: what the harness needs right now for the next step
+* `session_state`: durable run metadata for pause/resume and operator inspection
+* `retrieval_memory`: relevant source documents and extracted facts fetched by query
+
+Inspect the latest run with the default topic-based retrieval query:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli memory --latest
+```
+
+Or ask for retrieval results tied to a narrower query:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli memory --latest --query "approval gates" --top-k 3
+```
+
+A machine-readable `memory.json` snapshot is also written next to `state.json`, `trace.json`, and `summary.json` for every saved run.
+
+### 7. Approve and resume
 
 Replace `<run_id>` with the value printed by the `start` command.
 
@@ -244,7 +269,7 @@ This does **not** make the repo a full MCP server. It creates a provider-neutral
 
 ## Optional provider integration
 
-This starter repo intentionally works without external APIs, but it can also use an OpenAI-compatible endpoint for draft generation.
+This starter repo intentionally works without external APIs, but it can also use an OpenAI-compatible endpoint for planning, review, and draft generation.
 
 Supported env vars:
 
@@ -286,6 +311,7 @@ This repo gives you code that demonstrates real harness concepts cleanly:
 * resumes are deterministic
 * traces are stored
 * per-run summaries are persisted next to state and trace files
+* working/session/retrieval memory layers are inspectable from the CLI
 * replay/debug history is inspectable from the CLI
 * retries are visible
 * risky actions are gated
@@ -299,6 +325,7 @@ That makes it a good companion for a practical blog series on harness engineerin
 * expose the adapter over a real JSON-RPC MCP server transport
 * swap `search_mock` for a real MCP-backed search tool
 * add a web research provider behind an interface
+* attach token-budget metrics to working-context construction
 * add policy rules for file/network/tool permissions
 * add evaluation fixtures for trace replay
 * add a multi-agent planner/reviewer variant

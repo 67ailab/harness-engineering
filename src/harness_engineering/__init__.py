@@ -1,4 +1,5 @@
 __all__ = [
+    "memory",
     "models",
     "tools",
     "runner",
