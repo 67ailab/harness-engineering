@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     memory.add_argument("--query", help="Optional retrieval query; defaults to the run topic")
     memory.add_argument("--top-k", type=int, default=5, help="Maximum retrieval results to include")
 
+    pending = sub.add_parser("pending", help="Inspect the current pending approval action for a run")
+    pending.add_argument("run_id", nargs="?")
+    pending.add_argument("--latest", action="store_true")
+    pending.add_argument("--runs-dir", default=".runs")
+
     approve = sub.add_parser("approve", help="Approve the pending action for a run")
     approve.add_argument("run_id")
     approve.add_argument("--runs-dir", default=".runs")
@@ -136,6 +141,26 @@ def cmd_memory(args) -> int:
     return 0
 
 
+def cmd_pending(args) -> int:
+    store = RunStore(args.runs_dir)
+    run_id = _resolve_run_id(store, args.run_id, args.latest)
+    state = store.load(run_id)
+    pending = state.artifacts.get("pending_action_details") or {
+        "action": state.pending_action,
+        "status": state.status,
+        "requires_approval": state.requires_approval,
+        "message": "No structured pending-action details are available for this run.",
+    }
+    print(json.dumps({
+        "run_id": state.run_id,
+        "status": state.status,
+        "requires_approval": state.requires_approval,
+        "pending_action": state.pending_action,
+        "details": pending,
+    }, indent=2, ensure_ascii=False))
+    return 0
+
+
 def cmd_approve(args) -> int:
     store = RunStore(args.runs_dir)
     runner = HarnessRunner(store=store)
@@ -184,7 +209,14 @@ def cmd_interactive(args) -> int:
     print(f"Status: {state.status}")
     if state.status == "waiting_approval":
         print()
-        print("Pending action: finalize_report")
+        pending = state.artifacts.get("pending_action_details", {})
+        print(f"Pending action: {pending.get('action', 'finalize_report')}")
+        print(f"Reason: {pending.get('reason', 'No reason recorded')}")
+        if pending.get("proposed_output_path"):
+            print(f"Output path: {pending.get('proposed_output_path')}")
+        preview = pending.get("draft_preview", {})
+        if preview:
+            print(f"Draft preview: {preview.get('line_count')} lines, {preview.get('char_count')} chars")
         print("Preview of draft report:")
         print("=" * 60)
         print(state.artifacts.get("draft_markdown", ""))

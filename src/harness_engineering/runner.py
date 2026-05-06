@@ -100,11 +100,33 @@ class HarnessRunner:
                     state.requires_approval = False
                     self.store.save(state)
                     break
+                output_path = str(Path(self.store.run_dir(state.run_id)) / "final_report.md")
+                draft_lines = state.artifacts["draft_markdown"].splitlines()
+                pending_details = {
+                    "action": "finalize_report",
+                    "tool_name": "finalize_report",
+                    "tool_risky": True,
+                    "requested_by_step": "draft_report",
+                    "reason": "finalize_report writes the reviewed markdown report to disk and is treated as a risky action in this harness.",
+                    "proposed_output_path": output_path,
+                    "draft_preview": {
+                        "line_count": len(draft_lines),
+                        "char_count": len(state.artifacts["draft_markdown"]),
+                        "excerpt": draft_lines[:12],
+                    },
+                    "review": review,
+                    "next_commands": [
+                        f"PYTHONPATH=src python3 -m harness_engineering.cli pending {state.run_id}",
+                        f"PYTHONPATH=src python3 -m harness_engineering.cli approve {state.run_id}",
+                        f"PYTHONPATH=src python3 -m harness_engineering.cli resume {state.run_id}",
+                    ],
+                }
+                state.artifacts["pending_action_details"] = pending_details
                 state.current_step = "finalize_report"
                 state.requires_approval = True
                 state.pending_action = "finalize_report"
                 state.status = "waiting_approval"
-                add_trace(state, "approval_required", action="finalize_report")
+                add_trace(state, "approval_required", action="finalize_report", pending_action=pending_details)
                 self.store.save(state)
                 break
 
@@ -144,6 +166,10 @@ class HarnessRunner:
         state.approved = True
         state.requires_approval = False
         state.status = "running"
+        pending_details = state.artifacts.get("pending_action_details")
+        if isinstance(pending_details, dict):
+            pending_details["approved_at"] = state.updated_at
+            state.artifacts["pending_action_details"] = pending_details
         add_trace(state, "approval_granted", action=state.pending_action)
         self.store.save(state)
         return state

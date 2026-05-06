@@ -183,6 +183,7 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(summary["status"], "waiting_approval")
         self.assertTrue(summary["requires_approval"])
         self.assertEqual(summary["pending_action"], "finalize_report")
+        self.assertEqual(summary["pending_action_details"]["tool_name"], "finalize_report")
         self.assertEqual(summary["paths"]["summary"], str(self.store.summary_path(state.run_id)))
         self.assertEqual(len(summary["next_commands"]), 2)
 
@@ -296,6 +297,33 @@ class HarnessTests(unittest.TestCase):
             "approval",
             "--top-k",
             "2",
+        ])
+        self.assertEqual(code, 0)
+
+    def test_cli_pending_command(self) -> None:
+        path = self.root / "sources.json"
+        path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: cli pending harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            code = cli_main([
+                "start",
+                "--topic",
+                "cli pending harness",
+                "--source-file",
+                str(path),
+                "--runs-dir",
+                str(self.root / ".runs"),
+            ])
+        self.assertEqual(code, 0)
+        code = cli_main([
+            "pending",
+            "--latest",
+            "--runs-dir",
+            str(self.root / ".runs"),
         ])
         self.assertEqual(code, 0)
 

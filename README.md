@@ -166,7 +166,26 @@ PYTHONPATH=src python3 -m harness_engineering.cli memory --latest --query "appro
 
 A machine-readable `memory.json` snapshot is also written next to `state.json`, `trace.json`, and `summary.json` for every saved run.
 
-### 7. Approve and resume
+### 7. Inspect the pending approval action
+
+Before approving a risky step, you can now inspect a structured pending-action payload:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli pending --latest
+```
+
+That output includes:
+
+* the pending action name
+* why approval is required
+* the proposed output path
+* a small draft preview
+* the reviewer result that allowed the run to reach the approval gate
+* the next CLI commands to inspect, approve, and resume
+
+This makes the approval boundary more explicit than raw `inspect` output and models the kind of operator-facing approval surface a real harness should expose.
+
+### 8. Approve and resume
 
 Replace `<run_id>` with the value printed by the `start` command.
 
@@ -311,6 +330,7 @@ This repo gives you code that demonstrates real harness concepts cleanly:
 * resumes are deterministic
 * traces are stored
 * per-run summaries are persisted next to state and trace files
+* pending approval actions are inspectable from the CLI with operator-friendly details
 * working/session/retrieval memory layers are inspectable from the CLI
 * replay/debug history is inspectable from the CLI
 * retries are visible

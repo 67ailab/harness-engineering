@@ -51,6 +51,7 @@ class RunStore:
         final_report = state.artifacts.get("final_report", {})
         planner = state.artifacts.get("planner")
         review = state.artifacts.get("review", {})
+        pending_action_details = state.artifacts.get("pending_action_details", {})
 
         next_commands: list[str] = []
         if state.status == "waiting_approval":
@@ -72,6 +73,7 @@ class RunStore:
             "requires_approval": state.requires_approval,
             "approved": state.approved,
             "pending_action": state.pending_action,
+            "pending_action_details": pending_action_details,
             "planner": planner,
             "reviewer": review.get("reviewer"),
             "review_passed": review.get("passed"),
