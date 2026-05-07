@@ -14,6 +14,7 @@ from harness_engineering.reviewer import build_plan, review_markdown
 from harness_engineering.runner import HarnessRunner
 from harness_engineering.store import RunStore
 from harness_engineering.tools import ToolError, default_registry, load_source_documents
+from harness_engineering.tracing import build_trace_summary
 from harness_engineering.workflow import build_workflow_definition, workflow_to_mermaid
 
 
@@ -325,6 +326,106 @@ class HarnessTests(unittest.TestCase):
             "--runs-dir",
             str(self.root / ".runs"),
         ])
+        self.assertEqual(code, 0)
+
+    def test_trace_summary_counts_events_and_tools(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: trace summary",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("trace summary", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
+        summary = build_trace_summary(state)
+        self.assertEqual(summary["status"], "waiting_approval")
+        self.assertEqual(summary["counts"]["by_tool"]["search_mock"], 1)
+        self.assertIn("approval_required", summary["counts"]["by_event"])
+        self.assertTrue(summary["approval"]["required"])
+
+    def test_store_writes_trace_summary_file(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: trace summary file",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("trace summary file", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
+        trace_summary_path = self.store.trace_summary_path(state.run_id)
+        self.assertTrue(trace_summary_path.exists())
+        saved = json.loads(trace_summary_path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["run_id"], state.run_id)
+        self.assertIn("counts", saved)
+
+    def test_cli_trace_summary_command(self) -> None:
+        path = self.root / "sources.json"
+        path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: cli trace summary",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            code = cli_main([
+                "start",
+                "--topic",
+                "cli trace summary",
+                "--source-file",
+                str(path),
+                "--runs-dir",
+                str(self.root / ".runs"),
+            ])
+        self.assertEqual(code, 0)
+        code = cli_main([
+            "trace-summary",
+            "--latest",
+            "--runs-dir",
+            str(self.root / ".runs"),
+        ])
+        self.assertEqual(code, 0)
+
+    def test_cli_evals_command(self) -> None:
+        sources_path = self.root / "sources.json"
+        sources_path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
+        eval_dir = self.root / "evals"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        fixture_path = eval_dir / "basic.json"
+        fixture_path.write_text(json.dumps([
+            {
+                "name": "pause-eval",
+                "topic": "approval gated harness",
+                "source_file": "../sources.json",
+                "expected_status": "waiting_approval",
+                "expected_current_step": "finalize_report",
+                "required_events": ["approval_required"],
+                "min_trace_events": 5,
+            },
+            {
+                "name": "complete-eval",
+                "topic": "checkpointed local harness",
+                "source_file": "../sources.json",
+                "auto_approve": True,
+                "expected_status": "completed",
+                "expected_current_step": "done",
+                "required_events": ["approval_granted", "run_completed"],
+                "min_trace_events": 8,
+                "expect_final_report": True,
+            },
+        ]), encoding="utf-8")
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: eval harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            code = cli_main([
+                "evals",
+                "--fixtures",
+                str(fixture_path),
+                "--runs-dir",
+                str(self.root / ".runs-evals"),
+            ])
         self.assertEqual(code, 0)
 
 

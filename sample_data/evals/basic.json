@@ -1,0 +1,22 @@
+[
+  {
+    "name": "approval-pause-baseline",
+    "topic": "approval gated harness",
+    "source_file": "../sources.json",
+    "expected_status": "waiting_approval",
+    "expected_current_step": "finalize_report",
+    "required_events": ["run_created", "tool_start", "tool_ok", "draft_reviewed", "approval_required"],
+    "min_trace_events": 8
+  },
+  {
+    "name": "end-to-end-complete",
+    "topic": "checkpointed local harness",
+    "source_file": "../sources.json",
+    "auto_approve": true,
+    "expected_status": "completed",
+    "expected_current_step": "done",
+    "required_events": ["approval_required", "approval_granted", "run_resumed", "run_completed"],
+    "min_trace_events": 10,
+    "expect_final_report": true
+  }
+]

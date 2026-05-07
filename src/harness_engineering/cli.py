@@ -5,12 +5,14 @@ import json
 from pathlib import Path
 import sys
 
+from .evals import run_eval_suite
 from .mcp import call_tool_mcp, registry_to_mcp_tools
 from .memory import build_memory_snapshot
 from .provider import doctor_check
 from .runner import HarnessRunner
 from .store import RunStore
 from .tools import default_registry, load_source_documents
+from .tracing import build_trace_summary
 from .workflow import build_workflow_definition, workflow_to_mermaid
 
 
@@ -39,6 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument("--runs-dir", default=".runs")
     history.add_argument("--event", help="Filter history to a specific event name")
     history.add_argument("--tail", type=int, help="Show only the last N trace events")
+
+    trace_summary = sub.add_parser("trace-summary", help="Print a compact trace/observability summary for a run")
+    trace_summary.add_argument("run_id", nargs="?")
+    trace_summary.add_argument("--latest", action="store_true")
+    trace_summary.add_argument("--runs-dir", default=".runs")
 
     memory = sub.add_parser("memory", help="Inspect working, session, and retrieval memory layers for a run")
     memory.add_argument("run_id", nargs="?")
@@ -78,6 +85,10 @@ def build_parser() -> argparse.ArgumentParser:
     workflow = sub.add_parser("workflow", help="Inspect the harness workflow graph")
     workflow.add_argument("--format", choices=["json", "mermaid"], default="json")
     workflow.add_argument("--pretty", action="store_true")
+
+    evals = sub.add_parser("evals", help="Run lightweight trace-aware eval fixtures")
+    evals.add_argument("--fixtures", default="sample_data/evals/basic.json")
+    evals.add_argument("--runs-dir", default=".runs")
 
     sub.add_parser("doctor", help="Check provider/model connectivity and configuration")
 
@@ -130,6 +141,14 @@ def cmd_history(args) -> int:
     store = RunStore(args.runs_dir)
     run_id = _resolve_run_id(store, args.run_id, args.latest)
     print(json.dumps(store.history(run_id, event=args.event, tail=args.tail), indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_trace_summary(args) -> int:
+    store = RunStore(args.runs_dir)
+    run_id = _resolve_run_id(store, args.run_id, args.latest)
+    state = store.load(run_id)
+    print(json.dumps(build_trace_summary(state), indent=2, ensure_ascii=False))
     return 0
 
 
@@ -255,6 +274,12 @@ def cmd_workflow(args) -> int:
     indent = 2 if args.pretty else None
     print(json.dumps(workflow, indent=indent, ensure_ascii=False))
     return 0
+
+
+def cmd_evals(args) -> int:
+    result = run_eval_suite(fixtures_path=args.fixtures, runs_dir=args.runs_dir)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0 if result.get("failed", 0) == 0 else 1
 
 
 def cmd_doctor(args) -> int:

@@ -11,6 +11,8 @@ This repo starts with a real demo you can run locally without any API key:
 * resumable execution
 * human approval gates for risky actions
 * per-step tracing
+* persisted trace summaries for observability
+* lightweight trace-aware eval fixtures
 * explicit memory-layer separation for working context, session state, and retrieval memory
 * retry handling for flaky tools
 * secret-scan script to help avoid leaking keys into a public repo
@@ -143,7 +145,52 @@ The summary includes:
 
 This is still a lightweight local harness, not a full durable workflow engine, but the summary/history surface makes pause-and-resume behavior easier to inspect and explain.
 
-### 6. Inspect the memory layers
+### 6. Inspect a compact trace summary
+
+Every saved run now also writes a machine-readable trace summary to:
+
+```text
+.runs/<run_id>/trace_summary.json
+```
+
+You can print the same observability surface from the CLI:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli trace-summary --latest
+```
+
+The trace summary rolls up:
+
+* total trace-event count
+* event counts by type
+* tool counts and retry attempts by tool
+* latest workflow event
+* approval-gate status
+* reviewer result
+* whether a final artifact exists
+
+This is intentionally small, but it gives operators a faster way to inspect run behavior than reading the full raw trace.
+
+### 7. Run lightweight eval fixtures
+
+The repo now includes a tiny eval runner in `src/harness_engineering/evals.py` plus starter fixtures in `sample_data/evals/basic.json`.
+
+Run the default suite:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli evals
+```
+
+These evals are trace-aware rather than benchmark-like. They check whether a run reaches expected workflow states and emits required trace events such as:
+
+* `approval_required`
+* `approval_granted`
+* `run_resumed`
+* `run_completed`
+
+That makes them useful as harness evals: they validate runtime behavior, not just text quality.
+
+### 8. Inspect the memory layers
 
 The repo now exports a small memory architecture view in `src/harness_engineering/memory.py`.
 For any saved run, it separates:
@@ -166,7 +213,7 @@ PYTHONPATH=src python3 -m harness_engineering.cli memory --latest --query "appro
 
 A machine-readable `memory.json` snapshot is also written next to `state.json`, `trace.json`, and `summary.json` for every saved run.
 
-### 7. Inspect the pending approval action
+### 9. Inspect the pending approval action
 
 Before approving a risky step, you can now inspect a structured pending-action payload:
 
@@ -185,7 +232,7 @@ That output includes:
 
 This makes the approval boundary more explicit than raw `inspect` output and models the kind of operator-facing approval surface a real harness should expose.
 
-### 8. Approve and resume
+### 10. Approve and resume
 
 Replace `<run_id>` with the value printed by the `start` command.
 
@@ -329,6 +376,8 @@ This repo gives you code that demonstrates real harness concepts cleanly:
 * approvals are explicit workflow state
 * resumes are deterministic
 * traces are stored
+* per-run trace summaries are persisted next to state and trace files
+* lightweight eval fixtures can assert expected workflow states and trace events
 * per-run summaries are persisted next to state and trace files
 * pending approval actions are inspectable from the CLI with operator-friendly details
 * working/session/retrieval memory layers are inspectable from the CLI
@@ -347,5 +396,5 @@ That makes it a good companion for a practical blog series on harness engineerin
 * add a web research provider behind an interface
 * attach token-budget metrics to working-context construction
 * add policy rules for file/network/tool permissions
-* add evaluation fixtures for trace replay
+* extend eval fixtures into replayable regression suites with timing/cost thresholds
 * add a multi-agent planner/reviewer variant

@@ -8,6 +8,7 @@ from typing import Any
 
 from .memory import build_memory_snapshot
 from .models import RunState, now_iso
+from .tracing import build_trace_summary
 
 
 class RunStore:
@@ -31,6 +32,9 @@ class RunStore:
 
     def memory_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "memory.json"
+
+    def trace_summary_path(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / "trace_summary.json"
 
     def _duration_seconds(self, started_at: str, finished_at: str) -> int | None:
         try:
@@ -97,6 +101,7 @@ class RunStore:
                 "run_dir": str(self.run_dir(state.run_id)),
                 "state": str(self.state_path(state.run_id)),
                 "trace": str(self.trace_path(state.run_id)),
+                "trace_summary": str(self.trace_summary_path(state.run_id)),
                 "summary": str(self.summary_path(state.run_id)),
                 "memory": str(self.memory_path(state.run_id)),
             },
@@ -135,6 +140,8 @@ class RunStore:
             json.dump(self.build_summary(state), f, ensure_ascii=False, indent=2)
         with self.memory_path(state.run_id).open("w", encoding="utf-8") as f:
             json.dump(build_memory_snapshot(state), f, ensure_ascii=False, indent=2)
+        with self.trace_summary_path(state.run_id).open("w", encoding="utf-8") as f:
+            json.dump(build_trace_summary(state), f, ensure_ascii=False, indent=2)
 
     def load(self, run_id: str) -> RunState:
         path = self.state_path(run_id)
