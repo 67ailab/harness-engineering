@@ -6,6 +6,7 @@ This repo starts with a real demo you can run locally without any API key:
 
 * an approval-gated research agent harness
 * typed tool registry
+* explicit tool action categories and policy checks for safe/unsafe operations
 * MCP-style tool descriptors and adapter calls
 * checkpointed run state
 * resumable execution
@@ -29,6 +30,8 @@ Most agent demos focus on prompts. Real systems break somewhere else:
 
 This repo demonstrates the opposite approach: engineer the harness around the model or tools.
 
+That now includes a small but real policy layer: the harness classifies tool actions (for example `read_only`, `model_generation`, and `filesystem_write`) and checks whether risky side effects are allowed before execution.
+
 ## Demo architecture
 
 The included demo is a small *planner/executor/reviewer harness*:
@@ -39,6 +42,7 @@ The included demo is a small *planner/executor/reviewer harness*:
 4. `draft_report` writes a markdown draft
 5. a reviewer checks the draft structure/quality
 6. `finalize_report` is treated as risky and requires explicit human approval before writing to disk
+7. policy checks verify that filesystem writes stay inside allowed output roots before the write happens
 
 Run state is persisted under `.runs/<run_id>/state.json`.
 
@@ -232,7 +236,34 @@ That output includes:
 
 This makes the approval boundary more explicit than raw `inspect` output and models the kind of operator-facing approval surface a real harness should expose.
 
-### 10. Approve and resume
+### 10. Inspect policy rules and action categories
+
+The repo now includes a small policy engine in `src/harness_engineering/policy.py`.
+By default it:
+
+* classifies each tool by action category
+* treats `finalize_report` as a `filesystem_write`
+* allows writes only under the current runs directory
+* records policy decisions in run artifacts and traces
+
+Inspect the effective policy:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli policy --pretty
+```
+
+You can also supply a custom JSON policy file to tighten or relax rules:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli start \
+  --topic "Agentic harness engineering" \
+  --source-file sample_data/sources.json \
+  --policy-file sample_data/policy/restrictive.json
+```
+
+With the included restrictive sample policy, the run is expected to fail before approval because the proposed output path is outside the configured allowed write roots.
+
+### 11. Approve and resume
 
 Replace `<run_id>` with the value printed by the `start` command.
 
@@ -275,6 +306,34 @@ Check tracked files for obvious secrets:
 ```bash
 make secrets
 ```
+
+## Policy model
+
+The current policy layer is intentionally small and local.
+
+Core pieces:
+
+* `Tool.action_category` in `src/harness_engineering/tools.py`
+* `PolicyEngine` and `PolicyDecision` in `src/harness_engineering/policy.py`
+* `HarnessRunner._execute()` in `src/harness_engineering/runner.py`, which evaluates policy before tool execution
+* `cmd_policy()` in `src/harness_engineering/cli.py`, which prints the effective policy
+
+What it enforces today:
+
+* tools can be enabled or disabled by name
+* action categories are explicit and inspectable
+* filesystem write targets must stay under allowed roots
+* policy checks and denials are persisted in traces and summaries
+
+What it does **not** do yet:
+
+* network egress restrictions
+* subprocess sandboxing
+* OS-level isolation
+* user/session identity-based policy
+* capability-scoped credentials
+
+That is deliberate: this repo demonstrates harness-level policy gates, not a full system sandbox.
 
 ## Make targets
 
@@ -384,6 +443,8 @@ This repo gives you code that demonstrates real harness concepts cleanly:
 * replay/debug history is inspectable from the CLI
 * retries are visible
 * risky actions are gated
+* policy decisions are explicit, persisted, and inspectable
+* filesystem writes are constrained to allowed output roots by policy
 * the interactive demo makes the approval boundary tangible for readers and screenshots
 * optional local-model planning and review make the harness feel more agentic without requiring cloud APIs
 
@@ -395,6 +456,6 @@ That makes it a good companion for a practical blog series on harness engineerin
 * swap `search_mock` for a real MCP-backed search tool
 * add a web research provider behind an interface
 * attach token-budget metrics to working-context construction
-* add policy rules for file/network/tool permissions
+* extend policy beyond filesystem writes into network/tool/subprocess permissions
 * extend eval fixtures into replayable regression suites with timing/cost thresholds
 * add a multi-agent planner/reviewer variant

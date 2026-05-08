@@ -15,8 +15,20 @@ def build_trace_summary(state) -> dict[str, Any]:
     event_counts = Counter(item.event for item in state.trace)
     tool_counts = Counter(result.tool_name for result in state.step_results)
     attempt_counts = Counter()
+    action_category_counts = Counter()
+    policy_checked = 0
+    policy_denied = 0
     for result in state.step_results:
         attempt_counts[result.tool_name] += result.attempts
+    for item in state.trace:
+        detail = item.detail or {}
+        category = detail.get("action_category")
+        if category:
+            action_category_counts[category] += 1
+        if item.event == "policy_checked":
+            policy_checked += 1
+        if item.event == "policy_denied":
+            policy_denied += 1
 
     latest_event = state.trace[-1].event if state.trace else None
     first_event_at = state.trace[0].timestamp if state.trace else None
@@ -30,6 +42,8 @@ def build_trace_summary(state) -> dict[str, Any]:
         for result in state.step_results
         if not result.ok
     ]
+    policy_decisions = state.artifacts.get("policy_decisions", [])
+    latest_policy_decision = policy_decisions[-1] if policy_decisions else None
 
     return {
         "run_id": state.run_id,
@@ -41,6 +55,7 @@ def build_trace_summary(state) -> dict[str, Any]:
             "by_event": dict(event_counts),
             "by_tool": dict(tool_counts),
             "attempts_by_tool": dict(attempt_counts),
+            "by_action_category": dict(action_category_counts),
         },
         "timeline": {
             "first_event_at": first_event_at,
@@ -53,6 +68,12 @@ def build_trace_summary(state) -> dict[str, Any]:
             "pending_action": state.pending_action,
             "approval_events": event_counts.get("approval_required", 0) + event_counts.get("approval_still_required", 0),
             "granted_events": event_counts.get("approval_granted", 0),
+        },
+        "policy": {
+            "configured": bool(state.artifacts.get("policy")),
+            "checks": policy_checked,
+            "denials": policy_denied,
+            "latest_decision": latest_policy_decision,
         },
         "review": state.artifacts.get("review", {}),
         "artifacts": {

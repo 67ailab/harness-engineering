@@ -5,6 +5,7 @@ from typing import Any
 
 from .mcp import call_tool
 from .models import RunState, StepResult
+from .policy import PolicyDecision, PolicyEngine
 from .reviewer import create_plan_from_env, review_from_env
 from .store import RunStore
 from .tools import ToolError, ToolRegistry, default_registry
@@ -27,26 +28,79 @@ class RetryPolicy:
 
 
 class HarnessRunner:
-    def __init__(self, store: RunStore | None = None, registry: ToolRegistry | None = None) -> None:
+    def __init__(self, store: RunStore | None = None, registry: ToolRegistry | None = None, policy: PolicyEngine | None = None) -> None:
         self.store = store or RunStore()
         self.registry = registry or default_registry()
+        self.policy = policy or PolicyEngine(self.registry, store_root=self.store.root)
         self.retry = RetryPolicy(max_attempts=2)
+
+    def _record_policy_decision(self, state: RunState, decision: PolicyDecision) -> None:
+        state.artifacts.setdefault("policy_decisions", []).append(decision.to_dict())
 
     def _execute(self, state: RunState, tool_name: str, **kwargs: Any) -> StepResult:
         tool = self.registry.get(tool_name)
-        add_trace(state, "tool_start", tool=tool_name, args=kwargs, risky=tool.risky)
+        decision = self.policy.evaluate(tool_name, kwargs)
+        self._record_policy_decision(state, decision)
+        add_trace(
+            state,
+            "policy_checked",
+            tool=tool_name,
+            action_category=decision.action_category,
+            allowed=decision.allowed,
+            reason=decision.reason,
+            risky=tool.risky,
+            args=kwargs,
+        )
+        if not decision.allowed:
+            result = StepResult(tool_name=tool_name, ok=False, output={}, attempts=0, error=decision.reason)
+            state.step_results.append(result)
+            state.status = "failed"
+            state.pending_action = None
+            state.requires_approval = False
+            add_trace(
+                state,
+                "policy_denied",
+                tool=tool_name,
+                action_category=decision.action_category,
+                reason=decision.reason,
+            )
+            self.store.save(state)
+            return result
+        add_trace(
+            state,
+            "tool_start",
+            tool=tool_name,
+            args=kwargs,
+            risky=tool.risky,
+            action_category=tool.action_category,
+        )
         result = self.retry.call(tool_name, call_tool, self.registry, tool_name, kwargs)
         state.step_results.append(result)
         if result.ok:
-            add_trace(state, "tool_ok", tool=tool_name, output=result.output, attempts=result.attempts)
+            add_trace(
+                state,
+                "tool_ok",
+                tool=tool_name,
+                output=result.output,
+                attempts=result.attempts,
+                action_category=tool.action_category,
+            )
         else:
-            add_trace(state, "tool_error", tool=tool_name, error=result.error, attempts=result.attempts)
+            add_trace(
+                state,
+                "tool_error",
+                tool=tool_name,
+                error=result.error,
+                attempts=result.attempts,
+                action_category=tool.action_category,
+            )
         self.store.save(state)
         return result
 
     def create_run(self, topic: str, source_documents: list[dict[str, Any]]) -> RunState:
         state = RunState.new(topic=topic, source_documents=source_documents)
         state.status = "running"
+        state.artifacts["policy"] = self.policy.describe()
         plan, planner = create_plan_from_env(topic=topic, source_documents=source_documents)
         state.plan = plan or [
             "search_mock",
@@ -102,12 +156,39 @@ class HarnessRunner:
                     break
                 output_path = str(Path(self.store.run_dir(state.run_id)) / "final_report.md")
                 draft_lines = state.artifacts["draft_markdown"].splitlines()
+                policy_decision = self.policy.evaluate("finalize_report", {"markdown": state.artifacts["draft_markdown"], "output_path": output_path})
+                self._record_policy_decision(state, policy_decision)
+                add_trace(
+                    state,
+                    "policy_checked",
+                    tool="finalize_report",
+                    action_category=policy_decision.action_category,
+                    allowed=policy_decision.allowed,
+                    reason=policy_decision.reason,
+                    risky=True,
+                    args={"output_path": output_path},
+                )
+                if not policy_decision.allowed:
+                    state.status = "failed"
+                    state.pending_action = None
+                    state.requires_approval = False
+                    add_trace(
+                        state,
+                        "policy_denied",
+                        tool="finalize_report",
+                        action_category=policy_decision.action_category,
+                        reason=policy_decision.reason,
+                    )
+                    self.store.save(state)
+                    break
                 pending_details = {
                     "action": "finalize_report",
                     "tool_name": "finalize_report",
                     "tool_risky": True,
+                    "action_category": "filesystem_write",
                     "requested_by_step": "draft_report",
                     "reason": "finalize_report writes the reviewed markdown report to disk and is treated as a risky action in this harness.",
+                    "policy": policy_decision.to_dict(),
                     "proposed_output_path": output_path,
                     "draft_preview": {
                         "line_count": len(draft_lines),

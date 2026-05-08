@@ -46,6 +46,7 @@ def tool_to_mcp_descriptor(tool: Tool) -> dict[str, Any]:
         },
         "meta": {
             "risky": tool.risky,
+            "actionCategory": tool.action_category,
         },
     }
 

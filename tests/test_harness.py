@@ -9,6 +9,7 @@ from unittest.mock import patch
 from harness_engineering.cli import main as cli_main
 from harness_engineering.mcp import call_tool, call_tool_mcp, registry_to_mcp_tools, validate_tool_arguments
 from harness_engineering.memory import build_memory_snapshot, retrieve_memory
+from harness_engineering.policy import PolicyEngine
 from harness_engineering.provider import build_report_markdown
 from harness_engineering.reviewer import build_plan, review_markdown
 from harness_engineering.runner import HarnessRunner
@@ -129,6 +130,7 @@ class HarnessTests(unittest.TestCase):
         search_tool = next(item for item in tools if item["name"] == "search_mock")
         self.assertEqual(search_tool["inputSchema"]["type"], "object")
         self.assertFalse(search_tool["meta"]["risky"])
+        self.assertEqual(search_tool["meta"]["actionCategory"], "read_only")
 
     def test_call_tool_validates_arguments(self) -> None:
         registry = default_registry()
@@ -342,6 +344,8 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(summary["counts"]["by_tool"]["search_mock"], 1)
         self.assertIn("approval_required", summary["counts"]["by_event"])
         self.assertTrue(summary["approval"]["required"])
+        self.assertGreaterEqual(summary["policy"]["checks"], 1)
+        self.assertEqual(summary["counts"]["by_action_category"]["read_only"], 3)
 
     def test_store_writes_trace_summary_file(self) -> None:
         with patch("harness_engineering.runner.create_plan_from_env", return_value=([
@@ -383,6 +387,54 @@ class HarnessTests(unittest.TestCase):
             "--runs-dir",
             str(self.root / ".runs"),
         ])
+        self.assertEqual(code, 0)
+
+    def test_policy_engine_allows_default_run_dir_write(self) -> None:
+        registry = default_registry()
+        policy = PolicyEngine(registry, store_root=self.store.root)
+        target = self.store.run_dir("demo") / "final_report.md"
+        decision = policy.evaluate("finalize_report", {"markdown": "# hi", "output_path": str(target)})
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.action_category, "filesystem_write")
+
+    def test_policy_engine_denies_out_of_root_write(self) -> None:
+        registry = default_registry()
+        policy = PolicyEngine(registry, store_root=self.store.root)
+        target = self.root / "outside.md"
+        decision = policy.evaluate("finalize_report", {"markdown": "# hi", "output_path": str(target)})
+        self.assertFalse(decision.allowed)
+        self.assertIn("outside allowed output roots", decision.reason)
+
+    def test_run_fails_under_restrictive_policy_file(self) -> None:
+        path = self.root / "sources.json"
+        path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
+        restrictive = Path(__file__).resolve().parents[1] / "sample_data" / "policy" / "restrictive.json"
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: restrictive policy harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            code = cli_main([
+                "start",
+                "--topic",
+                "restrictive policy harness",
+                "--source-file",
+                str(path),
+                "--runs-dir",
+                str(self.root / ".runs-restrictive"),
+                "--policy-file",
+                str(restrictive),
+            ])
+        self.assertEqual(code, 0)
+        restrictive_store = RunStore(self.root / ".runs-restrictive")
+        state = restrictive_store.load(restrictive_store.latest_run_id())
+        self.assertEqual(state.status, "failed")
+        self.assertIn("policy_decisions", state.artifacts)
+        self.assertTrue(any(not item["allowed"] for item in state.artifacts["policy_decisions"]))
+
+    def test_cli_policy_command(self) -> None:
+        code = cli_main(["policy", "--runs-dir", str(self.root / ".runs"), "--pretty"])
         self.assertEqual(code, 0)
 
     def test_cli_evals_command(self) -> None:

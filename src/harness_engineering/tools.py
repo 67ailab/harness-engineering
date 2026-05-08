@@ -20,6 +20,7 @@ class Tool:
     input_schema: dict[str, str]
     risky: bool
     handler: Callable[..., dict[str, Any]]
+    action_category: str = "utility"
 
 
 class ToolRegistry:
@@ -85,11 +86,11 @@ def flaky_echo(message: str, fail_once: bool = False, state_file: str | None = N
 
 def default_registry() -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(Tool("search_mock", "Search mock documents for topic-relevant text.", {"topic": "str", "source_documents": "list"}, False, search_mock))
-    registry.register(Tool("extract_facts", "Extract concise facts from matched documents.", {"matches": "list"}, False, extract_facts))
-    registry.register(Tool("draft_report", "Draft a markdown report from extracted facts.", {"topic": "str", "facts": "list[str]"}, False, draft_report))
-    registry.register(Tool("finalize_report", "Write the final markdown report to disk.", {"markdown": "str", "output_path": "str"}, True, finalize_report))
-    registry.register(Tool("flaky_echo", "A test tool that can fail once and succeed on retry.", {"message": "str"}, False, flaky_echo))
+    registry.register(Tool("search_mock", "Search mock documents for topic-relevant text.", {"topic": "str", "source_documents": "list"}, False, search_mock, action_category="read_only"))
+    registry.register(Tool("extract_facts", "Extract concise facts from matched documents.", {"matches": "list"}, False, extract_facts, action_category="transform"))
+    registry.register(Tool("draft_report", "Draft a markdown report from extracted facts.", {"topic": "str", "facts": "list[str]"}, False, draft_report, action_category="model_generation"))
+    registry.register(Tool("finalize_report", "Write the final markdown report to disk.", {"markdown": "str", "output_path": "str"}, True, finalize_report, action_category="filesystem_write"))
+    registry.register(Tool("flaky_echo", "A test tool that can fail once and succeed on retry.", {"message": "str"}, False, flaky_echo, action_category="utility"))
     return registry
 
 

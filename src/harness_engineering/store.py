@@ -56,6 +56,7 @@ class RunStore:
         planner = state.artifacts.get("planner")
         review = state.artifacts.get("review", {})
         pending_action_details = state.artifacts.get("pending_action_details", {})
+        policy_decisions = state.artifacts.get("policy_decisions", [])
 
         next_commands: list[str] = []
         if state.status == "waiting_approval":
@@ -79,6 +80,11 @@ class RunStore:
             "pending_action": state.pending_action,
             "pending_action_details": pending_action_details,
             "planner": planner,
+            "policy": {
+                "configured": state.artifacts.get("policy", {}),
+                "decision_count": len(policy_decisions),
+                "latest_decision": policy_decisions[-1] if policy_decisions else None,
+            },
             "reviewer": review.get("reviewer"),
             "review_passed": review.get("passed"),
             "review_findings": review.get("findings", []),

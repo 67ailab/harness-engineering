@@ -8,6 +8,7 @@ import sys
 from .evals import run_eval_suite
 from .mcp import call_tool_mcp, registry_to_mcp_tools
 from .memory import build_memory_snapshot
+from .policy import PolicyEngine
 from .provider import doctor_check
 from .runner import HarnessRunner
 from .store import RunStore
@@ -24,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--topic", required=True)
     start.add_argument("--source-file", required=True)
     start.add_argument("--runs-dir", default=".runs")
+    start.add_argument("--policy-file", help="Optional JSON policy file for tool/action rules")
 
     inspect = sub.add_parser("inspect", help="Inspect a run")
     inspect.add_argument("run_id", nargs="?")
@@ -74,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     interactive.add_argument("--topic", required=True)
     interactive.add_argument("--source-file", required=True)
     interactive.add_argument("--runs-dir", default=".runs")
+    interactive.add_argument("--policy-file", help="Optional JSON policy file for tool/action rules")
 
     mcp_tools = sub.add_parser("mcp-tools", help="Print MCP-style tool descriptors for the default registry")
     mcp_tools.add_argument("--pretty", action="store_true")
@@ -85,6 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
     workflow = sub.add_parser("workflow", help="Inspect the harness workflow graph")
     workflow.add_argument("--format", choices=["json", "mermaid"], default="json")
     workflow.add_argument("--pretty", action="store_true")
+
+    policy = sub.add_parser("policy", help="Inspect the effective policy for tools and action categories")
+    policy.add_argument("--runs-dir", default=".runs")
+    policy.add_argument("--policy-file", help="Optional JSON policy file to load instead of the built-in default")
+    policy.add_argument("--pretty", action="store_true")
 
     evals = sub.add_parser("evals", help="Run lightweight trace-aware eval fixtures")
     evals.add_argument("--fixtures", default="sample_data/evals/basic.json")
@@ -106,9 +114,26 @@ def _resolve_run_id(store: RunStore, run_id: str | None, latest: bool) -> str:
     raise SystemExit("Provide run_id or use --latest")
 
 
+def _build_runner(*, runs_dir: str, policy_file: str | None = None, policy_config: dict | None = None) -> HarnessRunner:
+    store = RunStore(runs_dir)
+    registry = default_registry()
+    if policy_config is not None:
+        policy = PolicyEngine(registry, store_root=store.root, config=policy_config, config_path=policy_config.get("policy_file"))
+    else:
+        policy = PolicyEngine.from_file(registry, store_root=store.root, path=policy_file) if policy_file else PolicyEngine(registry, store_root=store.root)
+    return HarnessRunner(store=store, registry=registry, policy=policy)
+
+
+def _build_runner_for_existing_run(*, runs_dir: str, run_id: str) -> HarnessRunner:
+    store = RunStore(runs_dir)
+    state = store.load(run_id)
+    policy_config = state.artifacts.get("policy") if isinstance(state.artifacts.get("policy"), dict) else None
+    return _build_runner(runs_dir=runs_dir, policy_config=policy_config)
+
+
 def cmd_start(args) -> int:
     store = RunStore(args.runs_dir)
-    runner = HarnessRunner(store=store)
+    runner = _build_runner(runs_dir=args.runs_dir, policy_file=getattr(args, "policy_file", None))
     source_documents = load_source_documents(args.source_file)
     state = runner.create_run(topic=args.topic, source_documents=source_documents)
     state = runner.run_until_pause_or_complete(state)
@@ -181,16 +206,14 @@ def cmd_pending(args) -> int:
 
 
 def cmd_approve(args) -> int:
-    store = RunStore(args.runs_dir)
-    runner = HarnessRunner(store=store)
+    runner = _build_runner_for_existing_run(runs_dir=args.runs_dir, run_id=args.run_id)
     state = runner.approve(args.run_id)
     print(f"Approved run {state.run_id}. Current status: {state.status}")
     return 0
 
 
 def cmd_resume(args) -> int:
-    store = RunStore(args.runs_dir)
-    runner = HarnessRunner(store=store)
+    runner = _build_runner_for_existing_run(runs_dir=args.runs_dir, run_id=args.run_id)
     state = runner.resume(args.run_id)
     print(f"Run {state.run_id} status: {state.status}")
     if state.status == "completed":
@@ -216,7 +239,7 @@ def cmd_list(args) -> int:
 
 def cmd_interactive(args) -> int:
     store = RunStore(args.runs_dir)
-    runner = HarnessRunner(store=store)
+    runner = _build_runner(runs_dir=args.runs_dir, policy_file=getattr(args, "policy_file", None))
     source_documents = load_source_documents(args.source_file)
     state = runner.create_run(topic=args.topic, source_documents=source_documents)
     state = runner.run_until_pause_or_complete(state)
@@ -273,6 +296,14 @@ def cmd_workflow(args) -> int:
         return 0
     indent = 2 if args.pretty else None
     print(json.dumps(workflow, indent=indent, ensure_ascii=False))
+    return 0
+
+
+def cmd_policy(args) -> int:
+    registry = default_registry()
+    policy = PolicyEngine.from_file(registry, store_root=args.runs_dir, path=args.policy_file) if args.policy_file else PolicyEngine(registry, store_root=args.runs_dir)
+    indent = 2 if args.pretty else None
+    print(json.dumps(policy.describe(), indent=indent, ensure_ascii=False))
     return 0
 
 
