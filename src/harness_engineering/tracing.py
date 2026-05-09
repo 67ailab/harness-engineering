@@ -30,6 +30,18 @@ def build_trace_summary(state) -> dict[str, Any]:
         if item.event == "policy_denied":
             policy_denied += 1
 
+    role_activity_counts = Counter()
+    handoff_pairs = Counter()
+    for item in state.trace:
+        detail = item.detail or {}
+        if item.event == "role_activity":
+            role = detail.get("role")
+            if role:
+                role_activity_counts[role] += 1
+        if item.event == "role_handoff":
+            pair = f"{detail.get('from_role', '?')}->{detail.get('to_role', '?')}"
+            handoff_pairs[pair] += 1
+
     latest_event = state.trace[-1].event if state.trace else None
     first_event_at = state.trace[0].timestamp if state.trace else None
     last_event_at = state.trace[-1].timestamp if state.trace else None
@@ -68,6 +80,13 @@ def build_trace_summary(state) -> dict[str, Any]:
             "pending_action": state.pending_action,
             "approval_events": event_counts.get("approval_required", 0) + event_counts.get("approval_still_required", 0),
             "granted_events": event_counts.get("approval_granted", 0),
+        },
+        "multi_agent": {
+            "enabled": getattr(state, "run_mode", "single") == "multi_agent",
+            "handoff_count": event_counts.get("role_handoff", 0),
+            "role_activity_by_role": dict(role_activity_counts),
+            "handoff_pairs": dict(handoff_pairs),
+            "current_role": state.artifacts.get("current_role"),
         },
         "policy": {
             "configured": bool(state.artifacts.get("policy")),

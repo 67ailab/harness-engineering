@@ -37,6 +37,7 @@ class RunState:
     requires_approval: bool = False
     approved: bool = False
     pending_action: str | None = None
+    run_mode: str = "single"  # "single" or "multi_agent"
     plan: list[str] = field(default_factory=list)
     source_documents: list[dict[str, Any]] = field(default_factory=list)
     artifacts: dict[str, Any] = field(default_factory=dict)
@@ -44,7 +45,7 @@ class RunState:
     step_results: list[StepResult] = field(default_factory=list)
 
     @classmethod
-    def new(cls, topic: str, source_documents: list[dict[str, Any]]) -> "RunState":
+    def new(cls, topic: str, source_documents: list[dict[str, Any]], run_mode: str = "single") -> "RunState":
         timestamp = now_iso()
         return cls(
             run_id=str(uuid.uuid4()),
@@ -53,6 +54,7 @@ class RunState:
             created_at=timestamp,
             updated_at=timestamp,
             current_step="init",
+            run_mode=run_mode,
             source_documents=source_documents,
         )
 

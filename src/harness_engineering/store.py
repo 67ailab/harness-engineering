@@ -36,6 +36,9 @@ class RunStore:
     def trace_summary_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "trace_summary.json"
 
+    def handoffs_path(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / "handoffs.json"
+
     def _duration_seconds(self, started_at: str, finished_at: str) -> int | None:
         try:
             start = datetime.fromisoformat(started_at)
@@ -70,6 +73,7 @@ class RunStore:
         return {
             "run_id": state.run_id,
             "topic": state.topic,
+            "run_mode": state.run_mode,
             "status": state.status,
             "current_step": state.current_step,
             "created_at": state.created_at,
@@ -98,6 +102,12 @@ class RunStore:
             "approval_count": event_counts.get("approval_granted", 0),
             "trace_event_counts": dict(event_counts),
             "last_error": last_error,
+            "multi_agent": {
+                "enabled": state.run_mode == "multi_agent",
+                "handoff_count": len(state.artifacts.get("handoffs", [])),
+                "current_role": state.artifacts.get("current_role"),
+                "roles_seen": sorted({item.get("role") for item in state.artifacts.get("role_executions", []) if item.get("role")}),
+            },
             "artifacts": {
                 "draft_present": "draft_markdown" in state.artifacts,
                 "final_report_path": final_report.get("path"),
@@ -110,6 +120,7 @@ class RunStore:
                 "trace_summary": str(self.trace_summary_path(state.run_id)),
                 "summary": str(self.summary_path(state.run_id)),
                 "memory": str(self.memory_path(state.run_id)),
+                "handoffs": str(self.handoffs_path(state.run_id)),
             },
             "can_resume": state.status in {"created", "running", "waiting_approval"},
             "next_commands": next_commands,
@@ -148,6 +159,13 @@ class RunStore:
             json.dump(build_memory_snapshot(state), f, ensure_ascii=False, indent=2)
         with self.trace_summary_path(state.run_id).open("w", encoding="utf-8") as f:
             json.dump(build_trace_summary(state), f, ensure_ascii=False, indent=2)
+        with self.handoffs_path(state.run_id).open("w", encoding="utf-8") as f:
+            json.dump({
+                "run_id": state.run_id,
+                "run_mode": state.run_mode,
+                "handoffs": state.artifacts.get("handoffs", []),
+                "role_executions": state.artifacts.get("role_executions", []),
+            }, f, ensure_ascii=False, indent=2)
 
     def load(self, run_id: str) -> RunState:
         path = self.state_path(run_id)

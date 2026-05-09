@@ -1,6 +1,7 @@
 __all__ = [
     "memory",
     "models",
+    "multi_agent",
     "tools",
     "runner",
     "store",

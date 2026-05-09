@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--source-file", required=True)
     start.add_argument("--runs-dir", default=".runs")
     start.add_argument("--policy-file", help="Optional JSON policy file for tool/action rules")
+    start.add_argument("--multi-agent", action="store_true", help="Run in multi-agent mode with explicit role handoffs")
 
     inspect = sub.add_parser("inspect", help="Inspect a run")
     inspect.add_argument("run_id", nargs="?")
@@ -77,6 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
     interactive.add_argument("--source-file", required=True)
     interactive.add_argument("--runs-dir", default=".runs")
     interactive.add_argument("--policy-file", help="Optional JSON policy file for tool/action rules")
+    interactive.add_argument("--multi-agent", action="store_true", help="Run in multi-agent mode with explicit role handoffs")
+
+    handoffs = sub.add_parser("handoffs", help="Inspect role handoffs in a multi-agent run")
+    handoffs.add_argument("run_id", nargs="?")
+    handoffs.add_argument("--latest", action="store_true")
+    handoffs.add_argument("--runs-dir", default=".runs")
 
     mcp_tools = sub.add_parser("mcp-tools", help="Print MCP-style tool descriptors for the default registry")
     mcp_tools.add_argument("--pretty", action="store_true")
@@ -135,14 +142,18 @@ def cmd_start(args) -> int:
     store = RunStore(args.runs_dir)
     runner = _build_runner(runs_dir=args.runs_dir, policy_file=getattr(args, "policy_file", None))
     source_documents = load_source_documents(args.source_file)
-    state = runner.create_run(topic=args.topic, source_documents=source_documents)
+    run_mode = "multi_agent" if getattr(args, "multi_agent", False) else "single"
+    state = runner.create_run(topic=args.topic, source_documents=source_documents, run_mode=run_mode)
     state = runner.run_until_pause_or_complete(state)
     print(f"Run created: {state.run_id}")
+    print(f"Run mode: {state.run_mode}")
     print(f"Status: {state.status}")
     if state.status == "waiting_approval":
         print("Approval required before finalize_report can write the final markdown file.")
         print(f"Next: python3 -m harness_engineering.cli approve {state.run_id}")
         print(f"Then: python3 -m harness_engineering.cli resume {state.run_id}")
+    if run_mode == "multi_agent":
+        print(f"Inspect handoffs: python3 -m harness_engineering.cli handoffs {state.run_id}")
     return 0
 
 
@@ -237,11 +248,40 @@ def cmd_list(args) -> int:
     return 0
 
 
+def cmd_handoffs(args) -> int:
+    store = RunStore(args.runs_dir)
+    run_id = _resolve_run_id(store, args.run_id, args.latest)
+    state = store.load(run_id)
+
+    if state.run_mode != "multi_agent":
+        print(json.dumps({
+            "run_id": state.run_id,
+            "run_mode": state.run_mode,
+            "message": "This run is not in multi-agent mode. No handoffs recorded.",
+        }, indent=2, ensure_ascii=False))
+        return 0
+
+    handoffs = state.artifacts.get("handoffs", [])
+    role_executions = state.artifacts.get("role_executions", [])
+
+    print(json.dumps({
+        "run_id": state.run_id,
+        "run_mode": state.run_mode,
+        "current_role": state.artifacts.get("current_role"),
+        "handoff_count": len(handoffs),
+        "role_execution_count": len(role_executions),
+        "handoffs": handoffs,
+        "role_executions": role_executions,
+    }, indent=2, ensure_ascii=False))
+    return 0
+
+
 def cmd_interactive(args) -> int:
     store = RunStore(args.runs_dir)
     runner = _build_runner(runs_dir=args.runs_dir, policy_file=getattr(args, "policy_file", None))
     source_documents = load_source_documents(args.source_file)
-    state = runner.create_run(topic=args.topic, source_documents=source_documents)
+    run_mode = "multi_agent" if getattr(args, "multi_agent", False) else "single"
+    state = runner.create_run(topic=args.topic, source_documents=source_documents, run_mode=run_mode)
     state = runner.run_until_pause_or_complete(state)
 
     provider_used = state.step_results[-1].output.get("provider") if state.step_results else None

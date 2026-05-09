@@ -17,6 +17,7 @@ This repo starts with a real demo you can run locally without any API key:
 * explicit memory-layer separation for working context, session state, and retrieval memory
 * retry handling for flaky tools
 * secret-scan script to help avoid leaking keys into a public repo
+* an optional multi-agent mode with explicit planner→executor→reviewer handoffs
 
 ## Why this repo exists
 
@@ -43,6 +44,8 @@ The included demo is a small *planner/executor/reviewer harness*:
 5. a reviewer checks the draft structure/quality
 6. `finalize_report` is treated as risky and requires explicit human approval before writing to disk
 7. policy checks verify that filesystem writes stay inside allowed output roots before the write happens
+
+By default this runs as a single harness loop. You can also start it in a small `--multi-agent` mode that keeps the same linear workflow but records explicit role activity and handoffs between planner, executor, and reviewer.
 
 Run state is persisted under `.runs/<run_id>/state.json`.
 
@@ -97,6 +100,17 @@ Expected behavior:
 * it pauses before `finalize_report`
 * it saves checkpointed state locally
 * it tells you how to approve and resume
+
+To start the same demo in explicit multi-agent mode:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli start \
+  --topic "Agentic harness engineering" \
+  --source-file sample_data/sources.json \
+  --multi-agent
+```
+
+That mode does **not** create a swarm or a parallel graph runtime. It keeps the same small workflow and adds persisted planner→executor and executor↔reviewer handoffs so you can inspect the role boundaries honestly.
 
 ### 3. Try the interactive demo
 
@@ -217,7 +231,26 @@ PYTHONPATH=src python3 -m harness_engineering.cli memory --latest --query "appro
 
 A machine-readable `memory.json` snapshot is also written next to `state.json`, `trace.json`, and `summary.json` for every saved run.
 
-### 9. Inspect the pending approval action
+### 9. Inspect multi-agent handoffs
+
+For runs started with `--multi-agent`, the repo now persists a separate `handoffs.json` artifact plus role activity in `state.json`, `summary.json`, and `trace_summary.json`.
+
+Inspect the latest multi-agent handoffs:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli handoffs --latest
+```
+
+That output includes:
+
+* handoff count
+* current role
+* each recorded handoff with `from_role`, `to_role`, `purpose`, and payload summary
+* role execution events recorded during planning, execution, and review
+
+This is the repo's practical answer to multi-agent hype: keep roles sharp, keep the workflow small, and make the handoffs inspectable.
+
+### 10. Inspect the pending approval action
 
 Before approving a risky step, you can now inspect a structured pending-action payload:
 
@@ -236,7 +269,7 @@ That output includes:
 
 This makes the approval boundary more explicit than raw `inspect` output and models the kind of operator-facing approval surface a real harness should expose.
 
-### 10. Inspect policy rules and action categories
+### 11. Inspect policy rules and action categories
 
 The repo now includes a small policy engine in `src/harness_engineering/policy.py`.
 By default it:
@@ -263,7 +296,7 @@ PYTHONPATH=src python3 -m harness_engineering.cli start \
 
 With the included restrictive sample policy, the run is expected to fail before approval because the proposed output path is outside the configured allowed write roots.
 
-### 11. Approve and resume
+### 12. Approve and resume
 
 Replace `<run_id>` with the value printed by the `start` command.
 
@@ -447,6 +480,7 @@ This repo gives you code that demonstrates real harness concepts cleanly:
 * filesystem writes are constrained to allowed output roots by policy
 * the interactive demo makes the approval boundary tangible for readers and screenshots
 * optional local-model planning and review make the harness feel more agentic without requiring cloud APIs
+* multi-agent mode records explicit role handoffs without pretending the system is more autonomous than it is
 
 That makes it a good companion for a practical blog series on harness engineering.
 
@@ -458,4 +492,4 @@ That makes it a good companion for a practical blog series on harness engineerin
 * attach token-budget metrics to working-context construction
 * extend policy beyond filesystem writes into network/tool/subprocess permissions
 * extend eval fixtures into replayable regression suites with timing/cost thresholds
-* add a multi-agent planner/reviewer variant
+* extend the current multi-agent mode with verifier-specific tools or stricter handoff contracts

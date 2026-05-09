@@ -480,6 +480,63 @@ class HarnessTests(unittest.TestCase):
             ])
         self.assertEqual(code, 0)
 
+    def test_multi_agent_run_records_handoffs_and_role_activity(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: multi agent harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("multi agent harness", SAMPLE_DOCS, run_mode="multi_agent")
+            state = self.runner.run_until_pause_or_complete(state)
+        self.assertEqual(state.run_mode, "multi_agent")
+        self.assertEqual(state.status, "waiting_approval")
+        self.assertGreaterEqual(len(state.artifacts.get("handoffs", [])), 3)
+        self.assertGreaterEqual(len(state.artifacts.get("role_executions", [])), 4)
+        self.assertEqual(state.artifacts.get("handoffs", [])[0]["from_role"], "planner")
+        trace_summary = build_trace_summary(state)
+        self.assertTrue(trace_summary["multi_agent"]["enabled"])
+        self.assertGreaterEqual(trace_summary["multi_agent"]["handoff_count"], 3)
+        self.assertIn("executor", trace_summary["multi_agent"]["role_activity_by_role"])
+        handoffs_path = self.store.handoffs_path(state.run_id)
+        self.assertTrue(handoffs_path.exists())
+        saved = json.loads(handoffs_path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["run_mode"], "multi_agent")
+        self.assertGreaterEqual(len(saved["handoffs"]), 3)
+
+    def test_cli_handoffs_command_for_multi_agent_run(self) -> None:
+        path = self.root / "sources.json"
+        path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: cli multi agent harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            code = cli_main([
+                "start",
+                "--topic",
+                "cli multi agent harness",
+                "--source-file",
+                str(path),
+                "--runs-dir",
+                str(self.root / ".runs"),
+                "--multi-agent",
+            ])
+        self.assertEqual(code, 0)
+        code = cli_main([
+            "handoffs",
+            "--latest",
+            "--runs-dir",
+            str(self.root / ".runs"),
+        ])
+        self.assertEqual(code, 0)
+        state = self.store.load(self.store.latest_run_id())
+        summary = self.store.build_summary(state)
+        self.assertEqual(summary["run_mode"], "multi_agent")
+        self.assertTrue(summary["multi_agent"]["enabled"])
+        self.assertGreaterEqual(summary["multi_agent"]["handoff_count"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

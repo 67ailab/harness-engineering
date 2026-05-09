@@ -5,6 +5,7 @@ from typing import Any
 
 from .mcp import call_tool
 from .models import RunState, StepResult
+from .multi_agent import build_multi_agent_snapshot, planner_step, reviewer_handoffs
 from .policy import PolicyDecision, PolicyEngine
 from .reviewer import create_plan_from_env, review_from_env
 from .store import RunStore
@@ -36,6 +37,31 @@ class HarnessRunner:
 
     def _record_policy_decision(self, state: RunState, decision: PolicyDecision) -> None:
         state.artifacts.setdefault("policy_decisions", []).append(decision.to_dict())
+
+    def _record_role_activity(self, state: RunState, *, role: str, action: str, payload: dict[str, Any] | None = None) -> None:
+        payload = payload or {}
+        state.artifacts["current_role"] = role
+        state.artifacts.setdefault("role_executions", []).append(
+            {
+                "role": role,
+                "action": action,
+                "timestamp": state.updated_at,
+                "payload": payload,
+            }
+        )
+        add_trace(state, "role_activity", role=role, action=action, payload=payload)
+
+    def _record_handoff(self, state: RunState, handoff: dict[str, Any]) -> None:
+        state.artifacts.setdefault("handoffs", []).append(handoff)
+        state.artifacts["multi_agent"] = build_multi_agent_snapshot(state.artifacts.get("handoffs", []))
+        add_trace(
+            state,
+            "role_handoff",
+            from_role=handoff.get("from_role"),
+            to_role=handoff.get("to_role"),
+            purpose=handoff.get("purpose"),
+            payload=handoff.get("payload"),
+        )
 
     def _execute(self, state: RunState, tool_name: str, **kwargs: Any) -> StepResult:
         tool = self.registry.get(tool_name)
@@ -97,19 +123,40 @@ class HarnessRunner:
         self.store.save(state)
         return result
 
-    def create_run(self, topic: str, source_documents: list[dict[str, Any]]) -> RunState:
-        state = RunState.new(topic=topic, source_documents=source_documents)
+    def create_run(self, topic: str, source_documents: list[dict[str, Any]], run_mode: str = "single") -> RunState:
+        state = RunState.new(topic=topic, source_documents=source_documents, run_mode=run_mode)
         state.status = "running"
         state.artifacts["policy"] = self.policy.describe()
-        plan, planner = create_plan_from_env(topic=topic, source_documents=source_documents)
-        state.plan = plan or [
-            "search_mock",
-            "extract_facts",
-            "draft_report",
-            "finalize_report",
-        ]
-        state.artifacts["planner"] = planner
-        add_trace(state, "run_created", topic=topic, plan=state.plan, planner=planner)
+
+        if run_mode == "multi_agent":
+            plan, planner_packet, handoff = planner_step(topic=topic, source_documents=source_documents)
+            state.plan = plan or [
+                "search_mock",
+                "extract_facts",
+                "draft_report",
+                "finalize_report",
+            ]
+            state.artifacts["planner"] = planner_packet["provider"]
+            state.artifacts["planner_packet"] = planner_packet
+            self._record_role_activity(
+                state,
+                role="planner",
+                action="build_plan",
+                payload={"provider": planner_packet["provider"], "step_count": planner_packet["step_count"]},
+            )
+            self._record_handoff(state, handoff)
+            add_trace(state, "run_created", topic=topic, plan=state.plan, planner=planner_packet["provider"], mode="multi_agent")
+        else:
+            plan, planner = create_plan_from_env(topic=topic, source_documents=source_documents)
+            state.plan = plan or [
+                "search_mock",
+                "extract_facts",
+                "draft_report",
+                "finalize_report",
+            ]
+            state.artifacts["planner"] = planner
+            add_trace(state, "run_created", topic=topic, plan=state.plan, planner=planner, mode="single")
+
         self.store.save(state)
         return state
 
@@ -118,8 +165,17 @@ class HarnessRunner:
             return state
         if state.current_step == "init":
             state.current_step = "search_mock"
+
+        is_multi_agent = state.run_mode == "multi_agent"
+        if is_multi_agent and not state.artifacts.get("handoffs"):
+            state.artifacts["handoffs"] = []
+        if is_multi_agent and not state.artifacts.get("role_executions"):
+            state.artifacts["role_executions"] = []
+
         while True:
             if state.current_step == "search_mock":
+                if is_multi_agent:
+                    self._record_role_activity(state, role="executor", action="search_mock", payload={"topic": state.topic})
                 result = self._execute(state, "search_mock", topic=state.topic, source_documents=state.source_documents)
                 if not result.ok:
                     state.status = "failed"
@@ -130,6 +186,8 @@ class HarnessRunner:
                 continue
 
             if state.current_step == "extract_facts":
+                if is_multi_agent:
+                    self._record_role_activity(state, role="executor", action="extract_facts", payload={"match_count": len(state.artifacts.get("matches", []))})
                 result = self._execute(state, "extract_facts", matches=state.artifacts.get("matches", []))
                 if not result.ok:
                     state.status = "failed"
@@ -140,12 +198,31 @@ class HarnessRunner:
                 continue
 
             if state.current_step == "draft_report":
+                if is_multi_agent:
+                    self._record_role_activity(state, role="executor", action="draft_report", payload={"fact_count": len(state.artifacts.get("facts", []))})
                 result = self._execute(state, "draft_report", topic=state.topic, facts=state.artifacts.get("facts", []))
                 if not result.ok:
                     state.status = "failed"
                     break
                 state.artifacts["draft_markdown"] = result.output["markdown"]
+
                 review = review_from_env(topic=state.topic, markdown=state.artifacts["draft_markdown"])
+                if is_multi_agent:
+                    handoffs = reviewer_handoffs(
+                        topic=state.topic,
+                        markdown=state.artifacts["draft_markdown"],
+                        facts=state.artifacts.get("facts", []),
+                        review=review,
+                    )
+                    for handoff in handoffs:
+                        self._record_handoff(state, handoff)
+                    self._record_role_activity(
+                        state,
+                        role="reviewer",
+                        action="review_draft",
+                        payload={"passed": bool(review.get("passed", False)), "reviewer": review.get("reviewer")},
+                    )
+
                 state.artifacts["review"] = review
                 add_trace(state, "draft_reviewed", review=review)
                 if not review.get("passed", False):
@@ -219,6 +296,8 @@ class HarnessRunner:
                     add_trace(state, "approval_still_required", action="finalize_report")
                     self.store.save(state)
                     break
+                if is_multi_agent:
+                    self._record_role_activity(state, role="executor", action="finalize_report", payload={"approved": True})
                 output_path = str(Path(self.store.run_dir(state.run_id)) / "final_report.md")
                 result = self._execute(state, "finalize_report", markdown=state.artifacts["draft_markdown"], output_path=output_path)
                 if not result.ok:
