@@ -56,7 +56,9 @@ class PolicyEngine:
     ) -> None:
         self.registry = registry
         self.store_root = Path(store_root).resolve()
-        self.config_path = str(Path(config_path).resolve()) if config_path else None
+        resolved_config_path = Path(config_path).resolve() if config_path else None
+        self.config_path = str(resolved_config_path) if resolved_config_path else None
+        self.config_base_dir = resolved_config_path.parent if resolved_config_path else Path.cwd().resolve()
         base = default_policy_config(registry=registry, store_root=self.store_root)
         self.config = _merge_dicts(base, config or {})
 
@@ -72,11 +74,14 @@ class PolicyEngine:
         return cls(registry=registry, store_root=store_root, config=loaded, config_path=path)
 
     def describe(self) -> dict[str, Any]:
+        configured_roots = list(self.config.get("default_allowed_write_roots", []))
         return {
             "version": self.config.get("version", 1),
             "policy_file": self.config_path,
+            "policy_base_dir": str(self.config_base_dir),
             "store_root": str(self.store_root),
-            "default_allowed_write_roots": list(self.config.get("default_allowed_write_roots", [])),
+            "default_allowed_write_roots": configured_roots,
+            "resolved_default_allowed_write_roots": [str(self._resolve_policy_path(item)) for item in configured_roots],
             "tool_policies": self.config.get("tool_policies", {}),
         }
 
@@ -162,7 +167,7 @@ class PolicyEngine:
         candidate = Path(value)
         if candidate.is_absolute():
             return candidate.resolve()
-        return candidate.resolve()
+        return (self.config_base_dir / candidate).resolve()
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

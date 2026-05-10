@@ -271,18 +271,27 @@ This makes the approval boundary more explicit than raw `inspect` output and mod
 
 ### 11. Inspect policy rules and action categories
 
-The repo now includes a small policy engine in `src/harness_engineering/policy.py`.
+The repo now includes a small policy engine in `src/harness_engineering/policy.py` plus a checked-in baseline policy file at `policy/default.json`.
 By default it:
 
 * classifies each tool by action category
 * treats `finalize_report` as a `filesystem_write`
 * allows writes only under the current runs directory
 * records policy decisions in run artifacts and traces
+* resolves relative policy paths from the policy file location, not from whatever shell directory you happened to run from
 
-Inspect the effective policy:
+Inspect the effective built-in policy:
 
 ```bash
 PYTHONPATH=src python3 -m harness_engineering.cli policy --pretty
+```
+
+Inspect the checked-in baseline policy file explicitly:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli policy \
+  --policy-file policy/default.json \
+  --pretty
 ```
 
 You can also supply a custom JSON policy file to tighten or relax rules:
@@ -429,6 +438,12 @@ This does **not** make the repo a full MCP server. It creates a provider-neutral
 
 This starter repo intentionally works without external APIs, but it can also use an OpenAI-compatible endpoint for planning, review, and draft generation.
 
+The provider-loading path is intentionally small and inspectable:
+
+* `load_dotenv()` in `src/harness_engineering/provider.py` reads a repo-local `.env`
+* `load_model_config()` in `src/harness_engineering/provider.py` prefers repo-local `HARNESS_*` variables before inherited shell variables
+* `doctor_check()` in `src/harness_engineering/provider.py` validates `/models` and a minimal chat round-trip before you rely on local-model behavior in the demo
+
 Supported env vars:
 
 * `MODEL_PROVIDER` (`mock` or `openai_compatible`)
@@ -458,6 +473,9 @@ Check provider/model connectivity:
 ```bash
 PYTHONPATH=src python3 -m harness_engineering.cli doctor
 ```
+
+A healthy local OpenAI-compatible setup should return `status: "ok"` and echo `MODEL_OK`.
+If you leave the repo in mock mode, `doctor` should return `status: "mock"` and skip network checks.
 
 Never hardcode keys. Never commit populated `.env` files.
 

@@ -437,6 +437,35 @@ class HarnessTests(unittest.TestCase):
         code = cli_main(["policy", "--runs-dir", str(self.root / ".runs"), "--pretty"])
         self.assertEqual(code, 0)
 
+    def test_policy_file_relative_roots_resolve_from_file_location(self) -> None:
+        registry = default_registry()
+        policy_dir = self.root / "policy"
+        policy_dir.mkdir(parents=True, exist_ok=True)
+        nested_runs = policy_dir / ".runs"
+        nested_runs.mkdir(parents=True, exist_ok=True)
+        policy_file = policy_dir / "default.json"
+        policy_file.write_text(json.dumps({
+            "version": 1,
+            "default_allowed_write_roots": [".runs"],
+            "tool_policies": {
+                "finalize_report": {
+                    "enabled": True,
+                    "action_category": "filesystem_write",
+                    "allowed_output_roots": [".runs"]
+                }
+            }
+        }), encoding="utf-8")
+        policy = PolicyEngine.from_file(registry, store_root=self.root / ".runs-store", path=policy_file)
+        allowed_target = nested_runs / "example" / "final_report.md"
+        denied_target = self.root / ".runs-store" / "example" / "final_report.md"
+
+        allowed = policy.evaluate("finalize_report", {"markdown": "# hi", "output_path": str(allowed_target)})
+        denied = policy.evaluate("finalize_report", {"markdown": "# hi", "output_path": str(denied_target)})
+
+        self.assertTrue(allowed.allowed)
+        self.assertFalse(denied.allowed)
+        self.assertEqual(policy.describe()["resolved_default_allowed_write_roots"], [str(nested_runs.resolve())])
+
     def test_cli_evals_command(self) -> None:
         sources_path = self.root / "sources.json"
         sources_path.write_text(json.dumps(SAMPLE_DOCS), encoding="utf-8")

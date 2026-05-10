@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "default_allowed_write_roots": [
+    ".runs"
+  ],
+  "tool_policies": {
+    "search_mock": {
+      "enabled": true,
+      "action_category": "read_only"
+    },
+    "extract_facts": {
+      "enabled": true,
+      "action_category": "transform"
+    },
+    "draft_report": {
+      "enabled": true,
+      "action_category": "model_generation"
+    },
+    "finalize_report": {
+      "enabled": true,
+      "action_category": "filesystem_write",
+      "allowed_output_roots": [
+        ".runs"
+      ]
+    },
+    "flaky_echo": {
+      "enabled": true,
+      "action_category": "utility"
+    }
+  }
+}
