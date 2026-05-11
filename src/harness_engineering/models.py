@@ -24,6 +24,10 @@ class StepResult:
     output: dict[str, Any]
     attempts: int = 1
     error: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    metrics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

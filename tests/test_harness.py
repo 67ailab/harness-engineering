@@ -346,6 +346,42 @@ class HarnessTests(unittest.TestCase):
         self.assertTrue(summary["approval"]["required"])
         self.assertGreaterEqual(summary["policy"]["checks"], 1)
         self.assertEqual(summary["counts"]["by_action_category"]["read_only"], 3)
+        self.assertIn("performance", summary)
+        self.assertIn("cost", summary)
+        self.assertGreaterEqual(summary["performance"]["total_duration_ms"], 0)
+        self.assertIn("draft_report", summary["performance"]["by_tool"])
+        self.assertGreaterEqual(summary["cost"]["estimated_total_tokens"], 1)
+
+    def test_step_results_record_duration_and_metrics(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: metrics harness",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("metrics harness", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
+        self.assertTrue(all(result.started_at for result in state.step_results))
+        self.assertTrue(all(result.finished_at for result in state.step_results))
+        self.assertTrue(all((result.duration_ms or 0) >= 0 for result in state.step_results))
+        draft = next(result for result in state.step_results if result.tool_name == "draft_report")
+        self.assertIn("estimated_total_tokens", draft.metrics)
+        self.assertIn("cost_estimate", draft.metrics)
+
+    def test_summary_includes_performance_and_cost_rollups(self) -> None:
+        with patch("harness_engineering.runner.create_plan_from_env", return_value=([
+            "Search source documents for topic: summary performance",
+            "Extract concise facts from relevant matches",
+            "Draft a markdown report from the facts",
+            "Require human approval before writing the final report to disk",
+        ], "mock")), patch("harness_engineering.runner.review_from_env", return_value={"reviewer": "mock", "passed": True, "findings": []}), patch("harness_engineering.tools.create_client_from_env", return_value=None):
+            state = self.runner.create_run("summary performance", SAMPLE_DOCS)
+            state = self.runner.run_until_pause_or_complete(state)
+        summary = self.store.build_summary(state)
+        self.assertIn("performance", summary)
+        self.assertIn("cost", summary)
+        self.assertGreaterEqual(summary["performance"]["total_step_duration_ms"], 0)
+        self.assertGreaterEqual(summary["cost"]["estimated_total_tokens"], 1)
 
     def test_store_writes_trace_summary_file(self) -> None:
         with patch("harness_engineering.runner.create_plan_from_env", return_value=([

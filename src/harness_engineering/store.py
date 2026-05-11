@@ -70,6 +70,12 @@ class RunStore:
         elif state.status in {"created", "running"}:
             next_commands = [f"PYTHONPATH=src python3 -m harness_engineering.cli resume {state.run_id}"]
 
+        total_duration_ms = sum(result.duration_ms or 0 for result in state.step_results)
+        estimated_input_tokens = sum((result.metrics or {}).get("estimated_input_tokens", 0) for result in state.step_results)
+        estimated_output_tokens = sum((result.metrics or {}).get("estimated_output_tokens", 0) for result in state.step_results)
+        estimated_total_tokens = sum((result.metrics or {}).get("estimated_total_tokens", 0) for result in state.step_results)
+        total_bytes_written = sum(((result.metrics or {}).get("bytes_written") or 0) for result in state.step_results)
+
         return {
             "run_id": state.run_id,
             "topic": state.topic,
@@ -97,6 +103,29 @@ class RunStore:
             "steps_failed": sum(1 for result in state.step_results if not result.ok),
             "total_attempts": total_attempts,
             "tool_attempts": dict(tool_attempts),
+            "performance": {
+                "total_step_duration_ms": total_duration_ms,
+                "average_step_duration_ms": int(total_duration_ms / len(state.step_results)) if state.step_results else 0,
+                "slowest_step": max(
+                    (
+                        {
+                            "tool_name": result.tool_name,
+                            "duration_ms": result.duration_ms or 0,
+                            "attempts": result.attempts,
+                        }
+                        for result in state.step_results
+                    ),
+                    key=lambda item: item["duration_ms"],
+                    default=None,
+                ),
+            },
+            "cost": {
+                "estimated_input_tokens": estimated_input_tokens,
+                "estimated_output_tokens": estimated_output_tokens,
+                "estimated_total_tokens": estimated_total_tokens,
+                "total_bytes_written": total_bytes_written,
+                "note": "Token counts are coarse estimates from step metrics and should be treated as engineering heuristics, not billing data.",
+            },
             "pause_count": event_counts.get("approval_required", 0) + event_counts.get("approval_still_required", 0),
             "resume_count": event_counts.get("run_resumed", 0),
             "approval_count": event_counts.get("approval_granted", 0),

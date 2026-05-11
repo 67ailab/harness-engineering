@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from .mcp import call_tool
-from .models import RunState, StepResult
+from .models import RunState, StepResult, now_iso
 from .multi_agent import build_multi_agent_snapshot, planner_step, reviewer_handoffs
 from .policy import PolicyDecision, PolicyEngine
 from .reviewer import create_plan_from_env, review_from_env
@@ -19,13 +20,36 @@ class RetryPolicy:
 
     def call(self, tool_name: str, func, *args, **kwargs) -> StepResult:
         last_error = None
+        started_at = now_iso()
+        started_clock = perf_counter()
         for attempt in range(1, self.max_attempts + 1):
             try:
                 output = func(*args, **kwargs)
-                return StepResult(tool_name=tool_name, ok=True, output=output, attempts=attempt)
+                finished_at = now_iso()
+                duration_ms = max(0, int((perf_counter() - started_clock) * 1000))
+                return StepResult(
+                    tool_name=tool_name,
+                    ok=True,
+                    output=output,
+                    attempts=attempt,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                )
             except Exception as exc:  # noqa: BLE001
                 last_error = str(exc)
-        return StepResult(tool_name=tool_name, ok=False, output={}, attempts=self.max_attempts, error=last_error)
+        finished_at = now_iso()
+        duration_ms = max(0, int((perf_counter() - started_clock) * 1000))
+        return StepResult(
+            tool_name=tool_name,
+            ok=False,
+            output={},
+            attempts=self.max_attempts,
+            error=last_error,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=duration_ms,
+        )
 
 
 class HarnessRunner:
@@ -63,6 +87,56 @@ class HarnessRunner:
             payload=handoff.get("payload"),
         )
 
+    def _estimate_step_metrics(self, tool_name: str, result: StepResult, **kwargs: Any) -> dict[str, Any]:
+        output = result.output or {}
+        metrics: dict[str, Any] = {
+            "duration_ms": result.duration_ms,
+            "attempts": result.attempts,
+            "ok": result.ok,
+        }
+        if tool_name == "search_mock":
+            metrics["match_count"] = len(output.get("matches", []))
+            metrics["estimated_work_units"] = len(output.get("matches", []))
+        elif tool_name == "extract_facts":
+            facts = output.get("facts", [])
+            metrics["fact_count"] = len(facts)
+            metrics["estimated_output_chars"] = sum(len(item) for item in facts)
+            metrics["estimated_work_units"] = len(facts)
+        elif tool_name == "draft_report":
+            markdown = output.get("markdown", "")
+            provider = output.get("provider", "unknown")
+            char_count = len(markdown)
+            estimated_input_chars = len(kwargs.get("topic", "")) + sum(len(item) for item in kwargs.get("facts", []))
+            estimated_input_tokens = max(1, estimated_input_chars // 4) if estimated_input_chars else 0
+            estimated_output_tokens = max(1, char_count // 4) if char_count else 0
+            estimated_total_tokens = estimated_input_tokens + estimated_output_tokens
+            metrics.update({
+                "provider": provider,
+                "markdown_chars": char_count,
+                "estimated_input_tokens": estimated_input_tokens,
+                "estimated_output_tokens": estimated_output_tokens,
+                "estimated_total_tokens": estimated_total_tokens,
+            })
+            if provider == "openai_compatible":
+                metrics["cost_estimate"] = {
+                    "status": "unpriced",
+                    "reason": "The demo does not know provider-specific pricing, so token counts are estimated without claiming dollar costs.",
+                    "estimated_input_tokens": estimated_input_tokens,
+                    "estimated_output_tokens": estimated_output_tokens,
+                    "estimated_total_tokens": estimated_total_tokens,
+                }
+            else:
+                metrics["cost_estimate"] = {
+                    "status": "local_or_mock",
+                    "reason": "Mock/local draft generation records work volume but does not assign a synthetic dollar cost.",
+                    "estimated_total_tokens": estimated_total_tokens,
+                }
+        elif tool_name == "finalize_report":
+            metrics["output_path"] = output.get("path") or kwargs.get("output_path")
+            metrics["bytes_written"] = output.get("bytes")
+            metrics["estimated_work_units"] = 1
+        return metrics
+
     def _execute(self, state: RunState, tool_name: str, **kwargs: Any) -> StepResult:
         tool = self.registry.get(tool_name)
         decision = self.policy.evaluate(tool_name, kwargs)
@@ -78,7 +152,7 @@ class HarnessRunner:
             args=kwargs,
         )
         if not decision.allowed:
-            result = StepResult(tool_name=tool_name, ok=False, output={}, attempts=0, error=decision.reason)
+            result = StepResult(tool_name=tool_name, ok=False, output={}, attempts=0, error=decision.reason, metrics={"policy_allowed": False})
             state.step_results.append(result)
             state.status = "failed"
             state.pending_action = None
@@ -101,6 +175,7 @@ class HarnessRunner:
             action_category=tool.action_category,
         )
         result = self.retry.call(tool_name, call_tool, self.registry, tool_name, kwargs)
+        result.metrics = self._estimate_step_metrics(tool_name, result, **kwargs)
         state.step_results.append(result)
         if result.ok:
             add_trace(
@@ -109,6 +184,8 @@ class HarnessRunner:
                 tool=tool_name,
                 output=result.output,
                 attempts=result.attempts,
+                duration_ms=result.duration_ms,
+                metrics=result.metrics,
                 action_category=tool.action_category,
             )
         else:
@@ -118,6 +195,8 @@ class HarnessRunner:
                 tool=tool_name,
                 error=result.error,
                 attempts=result.attempts,
+                duration_ms=result.duration_ms,
+                metrics=result.metrics,
                 action_category=tool.action_category,
             )
         self.store.save(state)

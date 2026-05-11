@@ -11,7 +11,7 @@ This repo starts with a real demo you can run locally without any API key:
 * checkpointed run state
 * resumable execution
 * human approval gates for risky actions
-* per-step tracing
+* per-step tracing with timing and lightweight cost/workload estimates
 * persisted trace summaries for observability
 * lightweight trace-aware eval fixtures
 * explicit memory-layer separation for working context, session state, and retrieval memory
@@ -182,12 +182,16 @@ The trace summary rolls up:
 * total trace-event count
 * event counts by type
 * tool counts and retry attempts by tool
+* per-tool wall-clock duration totals and averages
+* estimated model-input/model-output token volume for draft-generation steps
 * latest workflow event
 * approval-gate status
 * reviewer result
 * whether a final artifact exists
 
 This is intentionally small, but it gives operators a faster way to inspect run behavior than reading the full raw trace.
+
+Important limitation: the repo records **engineering estimates**, not provider billing truth. Token counts are derived from character counts and the demo does not invent dollar prices it cannot verify.
 
 ### 7. Run lightweight eval fixtures
 
@@ -486,7 +490,7 @@ This repo gives you code that demonstrates real harness concepts cleanly:
 * approvals are explicit workflow state
 * resumes are deterministic
 * traces are stored
-* per-run trace summaries are persisted next to state and trace files
+* per-run trace summaries are persisted next to state and trace files, including timing and workload estimates
 * lightweight eval fixtures can assert expected workflow states and trace events
 * per-run summaries are persisted next to state and trace files
 * pending approval actions are inspectable from the CLI with operator-friendly details
