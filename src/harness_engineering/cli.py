@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 
+from .blueprint import build_reference_blueprint, blueprint_to_markdown, blueprint_to_mermaid
 from .evals import run_eval_suite
 from .mcp import call_tool_mcp, registry_to_mcp_tools
 from .memory import build_memory_snapshot
@@ -95,6 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
     workflow = sub.add_parser("workflow", help="Inspect the harness workflow graph")
     workflow.add_argument("--format", choices=["json", "mermaid"], default="json")
     workflow.add_argument("--pretty", action="store_true")
+
+    blueprint = sub.add_parser("blueprint", help="Export a reference harness blueprint view")
+    blueprint.add_argument("--runs-dir", default=".runs")
+    blueprint.add_argument("--policy-file", help="Optional JSON policy file to load instead of the built-in default")
+    blueprint.add_argument("--format", choices=["json", "markdown", "mermaid"], default="json")
+    blueprint.add_argument("--pretty", action="store_true")
 
     policy = sub.add_parser("policy", help="Inspect the effective policy for tools and action categories")
     policy.add_argument("--runs-dir", default=".runs")
@@ -336,6 +343,21 @@ def cmd_workflow(args) -> int:
         return 0
     indent = 2 if args.pretty else None
     print(json.dumps(workflow, indent=indent, ensure_ascii=False))
+    return 0
+
+
+def cmd_blueprint(args) -> int:
+    registry = default_registry()
+    policy = PolicyEngine.from_file(registry, store_root=args.runs_dir, path=args.policy_file) if args.policy_file else PolicyEngine(registry, store_root=args.runs_dir)
+    blueprint = build_reference_blueprint(registry, store_root=args.runs_dir, policy=policy)
+    if args.format == "markdown":
+        print(blueprint_to_markdown(blueprint))
+        return 0
+    if args.format == "mermaid":
+        print(blueprint_to_mermaid(blueprint))
+        return 0
+    indent = 2 if args.pretty else None
+    print(json.dumps(blueprint, indent=indent, ensure_ascii=False))
     return 0
 
 

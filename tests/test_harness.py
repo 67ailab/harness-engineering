@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from harness_engineering.blueprint import build_reference_blueprint, blueprint_to_markdown, blueprint_to_mermaid
 from harness_engineering.cli import main as cli_main
 from harness_engineering.mcp import call_tool, call_tool_mcp, registry_to_mcp_tools, validate_tool_arguments
 from harness_engineering.memory import build_memory_snapshot, retrieve_memory
@@ -601,6 +602,34 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(summary["run_mode"], "multi_agent")
         self.assertTrue(summary["multi_agent"]["enabled"])
         self.assertGreaterEqual(summary["multi_agent"]["handoff_count"], 3)
+
+    def test_reference_blueprint_includes_runtime_and_tools(self) -> None:
+        registry = default_registry()
+        policy = PolicyEngine(registry, store_root=self.store.root)
+        blueprint = build_reference_blueprint(registry, store_root=self.store.root, policy=policy)
+        self.assertEqual(blueprint["name"], "reference_agent_harness_blueprint")
+        self.assertEqual(blueprint["runtime"]["runner_class"], "HarnessRunner")
+        self.assertIn("workflow", blueprint)
+        self.assertGreaterEqual(blueprint["tooling"]["count"], 5)
+        self.assertIn("filesystem_write", blueprint["tooling"]["action_categories"])
+        self.assertTrue(any(item["name"] == "finalize_report" for item in blueprint["tooling"]["tools"]))
+
+    def test_blueprint_markdown_and_mermaid_exports(self) -> None:
+        blueprint = build_reference_blueprint(default_registry(), store_root=self.store.root)
+        markdown = blueprint_to_markdown(blueprint)
+        mermaid = blueprint_to_mermaid(blueprint)
+        self.assertIn("# Reference Agent Harness Blueprint", markdown)
+        self.assertIn("`HarnessRunner`", markdown)
+        self.assertIn("flowchart TD", mermaid)
+        self.assertIn("runner --> policy", mermaid)
+
+    def test_cli_blueprint_command(self) -> None:
+        code = cli_main(["blueprint", "--runs-dir", str(self.root / ".runs"), "--pretty"])
+        self.assertEqual(code, 0)
+        code = cli_main(["blueprint", "--runs-dir", str(self.root / ".runs"), "--format", "markdown"])
+        self.assertEqual(code, 0)
+        code = cli_main(["blueprint", "--runs-dir", str(self.root / ".runs"), "--format", "mermaid"])
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":

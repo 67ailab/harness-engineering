@@ -254,7 +254,26 @@ That output includes:
 
 This is the repo's practical answer to multi-agent hype: keep roles sharp, keep the workflow small, and make the handoffs inspectable.
 
-### 10. Inspect the pending approval action
+### 10. Export the reference harness blueprint
+
+The repo now exports a reference blueprint view that summarizes the current harness architecture, components, tool categories, workflow shape, persisted artifacts, and key limitations.
+
+Print it as JSON:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli blueprint --pretty
+```
+
+Or as Markdown / Mermaid for documentation:
+
+```bash
+PYTHONPATH=src python3 -m harness_engineering.cli blueprint --format markdown
+PYTHONPATH=src python3 -m harness_engineering.cli blueprint --format mermaid
+```
+
+This is intentionally a runtime-adjacent architecture artifact, not a fake enterprise diagram. It reflects the current code paths in `cli.py`, `runner.py`, `tools.py`, `policy.py`, `store.py`, `memory.py`, `tracing.py`, and `workflow.py`.
+
+### 11. Inspect the pending approval action
 
 Before approving a risky step, you can now inspect a structured pending-action payload:
 
